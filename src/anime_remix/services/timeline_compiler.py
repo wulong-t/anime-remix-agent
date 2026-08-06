@@ -13,7 +13,11 @@ from anime_remix.domain.models import (
     TimelineItem,
 )
 from anime_remix.errors import TimelineValidationError
-from anime_remix.services.clip_retriever import Selection
+from anime_remix.services.clip_retriever import (
+    MIN_FREEZE_SOURCE_FRAMES,
+    Selection,
+    selection_strategy,
+)
 
 
 def _relative_source_path(source: Path, target_dir: Path) -> str:
@@ -81,6 +85,50 @@ def compile_timeline(
                 asset_id=selection.asset.asset.id,
                 shot_id=requirement.id,
             )
+        strategy = TimelineStrategy(selection_strategy(selection.reason_code))
+        if strategy is TimelineStrategy.FREEZE_FRAME:
+            # Planner-strict freeze fields (AGENTS.md v1.10 §9.6 / §11.7).
+            if selection.source_in_frame != 0:
+                raise TimelineValidationError(
+                    "planner freeze requires source_in_frame == 0",
+                    shot_id=requirement.id,
+                    actual=selection.source_in_frame,
+                )
+            if selection.source_frame_count != selection.asset.nb_frames:
+                raise TimelineValidationError(
+                    "planner freeze requires source_frame_count == "
+                    "probed nb_frames",
+                    shot_id=requirement.id,
+                    actual=(
+                        selection.source_frame_count,
+                        selection.asset.nb_frames,
+                    ),
+                )
+            if selection.source_frame_count < MIN_FREEZE_SOURCE_FRAMES:
+                raise TimelineValidationError(
+                    "planner freeze requires source_frame_count >= 24",
+                    shot_id=requirement.id,
+                    actual=selection.source_frame_count,
+                )
+            items.append(
+                TimelineItem(
+                    shot_id=requirement.id,
+                    order=requirement.order,
+                    requirement=requirement,
+                    strategy=TimelineStrategy.FREEZE_FRAME,
+                    source_asset_id=selection.asset.asset.id,
+                    source_path=_relative_source_path(source, target_dir),
+                    source_size_bytes=selection.asset.size_bytes,
+                    source_sha256=sha256,
+                    source_in_frame=0,
+                    source_frame_count=selection.source_frame_count,
+                    target_frames=requirement.target_frames,
+                    score=selection.score,
+                    reason_code="short_source_freeze",
+                    reason="short_source_freeze",
+                )
+            )
+            continue
         items.append(
             TimelineItem(
                 shot_id=requirement.id,

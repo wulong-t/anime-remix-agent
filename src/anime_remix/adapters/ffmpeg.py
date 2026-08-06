@@ -45,6 +45,7 @@ REQUIRED_FILTERS = {
     "asetpts",
     "color",
     "anullsrc",
+    "tpad",
 }
 
 
@@ -451,6 +452,83 @@ class FFmpegToolkit:
             error_cls=RenderError,
             stage="render_clip",
         )
+
+    def freeze_frame_filter_graph(self, item: TimelineItem) -> str:
+        """Independent freeze_frame filter chain (AGENTS.md v1.10 §12.4)."""
+
+        start = item.source_in_frame
+        end = start + item.source_frame_count
+        return ",".join(
+            [
+                f"trim=start_frame={start}:end_frame={end}",
+                "setpts=PTS-STARTPTS",
+                "scale=1280:720:force_original_aspect_ratio=decrease:force_divisible_by=2",
+                "pad=1280:720:(ow-iw)/2:(oh-ih)/2:black",
+                "setsar=1",
+                "format=yuv420p",
+                "setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709:field_mode=prog",
+                "fps=fps=24:start_time=0:round=near",
+                f"tpad=stop_mode=clone:stop={item.target_frames}",
+                f"trim=end_frame={item.target_frames}",
+                "setpts=N/(24*TB)",
+            ]
+        )
+
+    def render_freeze_frame(
+        self,
+        item: TimelineItem,
+        source: Path,
+        output: Path,
+        *,
+        profile: RenderProfile,
+    ) -> None:
+        filter_graph = self.freeze_frame_filter_graph(item)
+        args = [
+            self.ffmpeg or "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-i",
+            str(source),
+            "-map",
+            "0:v:0",
+            "-vf",
+            filter_graph,
+        ]
+        args.extend(self._encode_args(profile, output))
+        self._run(
+            args,
+            timeout=ENCODE_TIMEOUT,
+            error_cls=RenderError,
+            stage="render_freeze_frame",
+        )
+
+    def source_nb_frames(self, path: Path) -> int:
+        """Probe the actual frame count of a source video stream."""
+
+        info = self._probe(
+            path,
+            count_frames=True,
+            select="v:0",
+        )
+        streams = info.get("streams") or []
+        videos = [s for s in streams if s.get("codec_type") == "video"]
+        if len(videos) != 1:
+            raise MediaProbeError(
+                "source must have exactly one video stream",
+                actual=len(videos),
+            )
+        raw = videos[0].get("nb_read_frames") or videos[0].get("nb_frames")
+        try:
+            nb_frames = int(raw)
+        except (TypeError, ValueError):
+            nb_frames = 0
+        if nb_frames <= 0:
+            raise MediaProbeError(
+                "cannot determine source frame count",
+                actual=raw,
+            )
+        return nb_frames
 
     def render_placeholder(
         self,

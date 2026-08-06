@@ -102,7 +102,10 @@ def render_timeline(
 
     sources: dict[str, Path] = {}
     for item in timeline.items:
-        if item.strategy is not TimelineStrategy.CLIP:
+        if item.strategy not in (
+            TimelineStrategy.CLIP,
+            TimelineStrategy.FREEZE_FRAME,
+        ):
             continue
         source = validate_timeline_source_path(
             timeline_path.resolve().parent,
@@ -125,6 +128,23 @@ def render_timeline(
                 shot_id=item.shot_id,
                 field="source_sha256",
             )
+        if item.strategy is TimelineStrategy.FREEZE_FRAME:
+            source_nb_frames = toolkit.source_nb_frames(source)
+            if (
+                item.source_in_frame + item.source_frame_count
+                > source_nb_frames
+            ):
+                raise TimelineValidationError(
+                    "freeze_frame source interval exceeds actual "
+                    "source frame count",
+                    shot_id=item.shot_id,
+                    field="source_frame_count",
+                    actual=(
+                        item.source_in_frame,
+                        item.source_frame_count,
+                        source_nb_frames,
+                    ),
+                )
         sources[item.shot_id] = source
 
     _ensure_output_safety(
@@ -166,6 +186,17 @@ def render_timeline(
             if item.strategy is TimelineStrategy.CLIP:
                 _log(log_path, f"segment {index}: clip {item.source_asset_id}")
                 toolkit.render_clip(
+                    item,
+                    sources[item.shot_id],
+                    segment,
+                    profile=timeline.render_profile,
+                )
+            elif item.strategy is TimelineStrategy.FREEZE_FRAME:
+                _log(
+                    log_path,
+                    f"segment {index}: freeze_frame {item.source_asset_id}",
+                )
+                toolkit.render_freeze_frame(
                     item,
                     sources[item.shot_id],
                     segment,

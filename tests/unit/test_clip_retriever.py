@@ -111,7 +111,8 @@ def test_stable_sort_and_tie_break() -> None:
     _selections, audit = retrieve([_requirement()], [second, first])
     shot = audit["shots"][0]
     assert shot["top_3"][0]["asset_id"] == "clip_a"
-    assert shot["selected"]["asset_id"] == "clip_a"
+    assert shot["selected"]["selected_asset_id"] == "clip_a"
+    assert shot["selected"]["selected_strategy"] == "clip"
 
 
 def test_gate_scan_continues_past_short_first_candidate() -> None:
@@ -140,7 +141,14 @@ def test_gate_scan_continues_past_short_first_candidate() -> None:
     assert selected.reason_code == "center_trim"
     assert selected.source_in_frame == 12
     shot = audit["shots"][0]
-    assert "frames" in shot["unique_skip_reasons"]
+    assert shot["selected"]["selected_strategy"] == "clip"
+    freeze_entries = [
+        entry
+        for entry in shot["checked_gates"]
+        if entry["asset_id"] == "clip_short"
+    ]
+    assert freeze_entries
+    assert freeze_entries[0]["frame_gate"] == "freeze_eligible"
 
 
 def test_no_candidate_uses_placeholder() -> None:
@@ -157,7 +165,10 @@ def test_no_candidate_uses_placeholder() -> None:
     selected = selections["shot_001"]
     assert selected.asset is None
     assert selected.reason_code == "no_candidate"
-    assert audit["shots"][0]["selected"] is None
+    shot = audit["shots"][0]
+    assert shot["selected"]["selected_asset_id"] is None
+    assert shot["selected"]["selected_strategy"] == "placeholder"
+    assert shot["selected"]["reason_code"] == "no_candidate"
 
 
 def test_exact_length() -> None:
@@ -242,3 +253,178 @@ def test_person_matching_missing_id_allows_name() -> None:
         )
         == 1
     )
+
+
+def test_frame_gate_too_short() -> None:
+    probed = _probed(
+        "clip_23f",
+        23,
+        characters=[{"id": "char_lin_xia", "name": "林夏"}],
+        location_id="loc_school_rooftop",
+        location_name="学校天台",
+        action="独自站立",
+        description="林夏独自站在学校天台。",
+    )
+    selections, audit = retrieve([_requirement()], [probed])
+    selected = selections["shot_001"]
+    assert selected.asset is None
+    assert selected.reason_code == "no_candidate"
+    shot = audit["shots"][0]
+    assert shot["checked_gates"][0]["frame_gate"] == "too_short"
+    assert shot["unique_skip_reasons"] == ["too_short"]
+
+
+def test_frame_gate_freeze_eligible_at_24_frames() -> None:
+    probed = _probed(
+        "clip_24f",
+        24,
+        characters=[{"id": "char_lin_xia", "name": "林夏"}],
+        location_id="loc_school_rooftop",
+        location_name="学校天台",
+        action="独自站立",
+        description="林夏独自站在学校天台。",
+    )
+    selections, audit = retrieve([_requirement()], [probed])
+    selected = selections["shot_001"]
+    assert selected.asset is not None
+    assert selected.asset.asset.id == "clip_24f"
+    assert selected.reason_code == "short_source_freeze"
+    assert selected.source_in_frame == 0
+    assert selected.source_frame_count == 24
+    shot = audit["shots"][0]
+    assert shot["checked_gates"][0]["frame_gate"] == "freeze_eligible"
+    assert shot["selected"]["selected_strategy"] == "freeze_frame"
+    assert shot["selected"]["reason_code"] == "short_source_freeze"
+
+
+def test_frame_gate_clip_eligible_at_exact_target() -> None:
+    probed = _probed(
+        "clip_72f",
+        72,
+        characters=[{"id": "char_lin_xia", "name": "林夏"}],
+        location_id="loc_school_rooftop",
+        location_name="学校天台",
+        action="独自站立",
+        description="林夏独自站在学校天台。",
+    )
+    selections, audit = retrieve([_requirement()], [probed])
+    selected = selections["shot_001"]
+    assert selected.asset is not None
+    assert selected.reason_code == "exact_length"
+    shot = audit["shots"][0]
+    assert shot["checked_gates"][0]["frame_gate"] == "clip_eligible"
+    assert shot["selected"]["selected_strategy"] == "clip"
+
+
+def test_high_rank_freeze_does_not_beat_later_full_clip() -> None:
+    short = _probed(
+        "clip_short",
+        60,
+        characters=[{"id": "char_lin_xia", "name": "林夏"}],
+        location_id="loc_school_rooftop",
+        location_name="学校天台",
+        action="独自站立",
+        description="林夏独自站在学校天台。",
+    )
+    good = _probed(
+        "clip_good",
+        96,
+        characters=[{"id": "char_lin_xia", "name": "林夏"}],
+        location_id="loc_school_rooftop",
+        location_name="学校天台",
+        action="独自站立",
+        description="林夏独自站在学校天台。",
+    )
+    selections, audit = retrieve([_requirement()], [short, good])
+    selected = selections["shot_001"]
+    assert selected.asset is not None
+    assert selected.asset.asset.id == "clip_good"
+    assert selected.reason_code == "center_trim"
+    shot = audit["shots"][0]
+    assert shot["selected"]["selected_strategy"] == "clip"
+    assert shot["selected"]["selected_global_rank"] == 2
+    freeze_entry = shot["checked_gates"][0]
+    assert freeze_entry["frame_gate"] == "freeze_eligible"
+
+
+def test_no_full_clip_selects_highest_rank_freeze() -> None:
+    low = _probed(
+        "clip_low",
+        30,
+        characters=[{"id": "char_lin_xia", "name": "林夏"}],
+        location_id="loc_school_rooftop",
+        location_name="学校天台",
+        action="独自站立",
+        description="林夏独自站在学校天台。",
+    )
+    high = _probed(
+        "clip_high",
+        60,
+        characters=[{"id": "char_lin_xia", "name": "林夏"}],
+        location_id="loc_school_rooftop",
+        location_name="学校天台",
+        action="独自站立",
+        description="林夏独自站在学校天台。",
+    )
+    selections, audit = retrieve([_requirement()], [low, high])
+    selected = selections["shot_001"]
+    assert selected.asset is not None
+    assert selected.asset.asset.id == "clip_high"
+    assert selected.reason_code == "short_source_freeze"
+    assert selected.source_in_frame == 0
+    assert selected.source_frame_count == 60
+    shot = audit["shots"][0]
+    assert shot["selected"]["selected_strategy"] == "freeze_frame"
+    assert shot["selected"]["selected_global_rank"] == 1
+
+
+def test_content_gate_failing_short_source_is_not_fallback() -> None:
+    unrelated = _probed(
+        "clip_unrelated",
+        30,
+        characters=[{"id": "other", "name": "路人"}],
+        location_id="loc_street",
+        location_name="街道",
+        action="骑车",
+        description="路人在街道上骑车。",
+    )
+    selections, audit = retrieve([_requirement()], [unrelated])
+    selected = selections["shot_001"]
+    assert selected.asset is None
+    assert selected.reason_code == "no_candidate"
+    shot = audit["shots"][0]
+    assert shot["checked_gates"][0]["frame_gate"] is None
+    assert shot["selected"]["selected_strategy"] == "placeholder"
+
+
+def test_retrieval_audit_records_frame_gates_and_strategy() -> None:
+    short = _probed(
+        "clip_short",
+        60,
+        characters=[{"id": "char_lin_xia", "name": "林夏"}],
+        location_id="loc_school_rooftop",
+        location_name="学校天台",
+        action="独自站立",
+        description="林夏独自站在学校天台。",
+    )
+    good = _probed(
+        "clip_good",
+        96,
+        characters=[{"id": "char_lin_xia", "name": "林夏"}],
+        location_id="loc_school_rooftop",
+        location_name="学校天台",
+        action="独自站立",
+        description="林夏独自站在学校天台。",
+    )
+    _selections, audit = retrieve([_requirement()], [short, good])
+    shot = audit["shots"][0]
+    frame_gates = {
+        entry["asset_id"]: entry["frame_gate"]
+        for entry in shot["checked_gates"]
+    }
+    assert frame_gates == {
+        "clip_short": "freeze_eligible",
+        "clip_good": "clip_eligible",
+    }
+    assert shot["selected"]["selected_strategy"] == "clip"
+    assert shot["selected"]["reason_code"] == "center_trim"

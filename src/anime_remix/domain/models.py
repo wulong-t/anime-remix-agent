@@ -22,7 +22,12 @@ STRICT_CONFIG = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 SCORE_QUANTUM = Decimal("0.000001")
 ID_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-ReasonCode = Literal["exact_length", "center_trim", "no_candidate"]
+ReasonCode = Literal[
+    "exact_length",
+    "center_trim",
+    "short_source_freeze",
+    "no_candidate",
+]
 
 
 def quantize_score(value: Decimal) -> Decimal:
@@ -251,6 +256,12 @@ class Timeline(BaseModel):
             if item.target_frames <= 0:
                 raise ValueError("target_frames must be positive")
             if item.strategy is TimelineStrategy.CLIP:
+                if item.reason_code not in ("exact_length", "center_trim"):
+                    raise ValueError(
+                        "clip strategy requires reason_code "
+                        "exact_length/center_trim, "
+                        f"got {item.reason_code!r}"
+                    )
                 required = (
                     item.source_asset_id,
                     item.source_path,
@@ -267,7 +278,46 @@ class Timeline(BaseModel):
                     )
                 if not SHA256_PATTERN.fullmatch(item.source_sha256 or ""):
                     raise ValueError("clip source_sha256 must be 64 lowercase hex chars")
+            elif item.strategy is TimelineStrategy.FREEZE_FRAME:
+                if item.reason_code != "short_source_freeze":
+                    raise ValueError(
+                        "freeze_frame strategy requires reason_code "
+                        "short_source_freeze, "
+                        f"got {item.reason_code!r}"
+                    )
+                required = (
+                    item.source_asset_id,
+                    item.source_path,
+                    item.source_size_bytes,
+                    item.source_sha256,
+                )
+                if any(v is None for v in required):
+                    raise ValueError(
+                        "freeze_frame item requires complete source fields"
+                    )
+                if item.source_in_frame < 0:
+                    raise ValueError(
+                        "freeze_frame source_in_frame must be >= 0"
+                    )
+                if item.source_frame_count < 1:
+                    raise ValueError(
+                        "freeze_frame source_frame_count must be >= 1"
+                    )
+                if item.source_frame_count >= item.target_frames:
+                    raise ValueError(
+                        "freeze_frame source_frame_count must be < target_frames"
+                    )
+                if not SHA256_PATTERN.fullmatch(item.source_sha256 or ""):
+                    raise ValueError(
+                        "freeze_frame source_sha256 must be 64 lowercase hex chars"
+                    )
             else:  # placeholder
+                if item.reason_code != "no_candidate":
+                    raise ValueError(
+                        "placeholder strategy requires reason_code "
+                        "no_candidate, "
+                        f"got {item.reason_code!r}"
+                    )
                 if any(
                     v is not None
                     for v in (

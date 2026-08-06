@@ -15,6 +15,7 @@ from anime_remix.domain.models import (
     ShotRequirement,
     quantize_score,
 )
+from anime_remix.errors import RetrievalError
 
 SEQUENCE_MATCHER_MAX_CODEPOINTS = 256
 NORMALIZE_MAX_CODEPOINTS = 2048
@@ -29,6 +30,23 @@ TOTAL_GATE = Decimal("0.55")
 CHARACTER_GATE = Decimal("0.50")
 ACTION_GATE = Decimal("0.25")
 TOP_K = 3
+MIN_FREEZE_SOURCE_FRAMES = 24
+
+
+def selection_strategy(reason_code: str) -> str:
+    """Map a Selection reason_code to its renderer strategy name."""
+
+    if reason_code in ("exact_length", "center_trim"):
+        return "clip"
+    if reason_code == "short_source_freeze":
+        return "freeze_frame"
+    if reason_code == "no_candidate":
+        return "placeholder"
+    raise RetrievalError(
+        "unknown selection reason_code",
+        field="reason_code",
+        actual=reason_code,
+    )
 
 
 def normalize_for_match(text: str) -> str:
@@ -378,12 +396,12 @@ def retrieve(
 
         checked: list[dict[str, Any]] = []
         selected: Selection | None = None
+        freeze_fallback: ScoredCandidate | None = None
         for candidate in candidates:
             gates: dict[str, bool | None] = {
                 "total": candidate.score.total >= TOTAL_GATE,
                 "character": None,
                 "action": None,
-                "frames": None,
             }
             if candidate.score.total < TOTAL_GATE:
                 gates["action"] = False
@@ -392,6 +410,7 @@ def retrieve(
                         "rank": candidate.rank,
                         "asset_id": candidate.asset.asset.id,
                         "gates": gates,
+                        "frame_gate": None,
                         "skip_reason": "total_threshold",
                     }
                 )
@@ -404,18 +423,41 @@ def retrieve(
                 )
             )
             action_ok = candidate.score.action >= ACTION_GATE
-            frames_ok = candidate.asset.nb_frames >= requirement.target_frames
             gates["character"] = char_ok
             gates["action"] = action_ok
-            gates["frames"] = frames_ok
-            if char_ok and action_ok and frames_ok:
-                if candidate.asset.nb_frames == requirement.target_frames:
+            if not char_ok or not action_ok:
+                checked.append(
+                    {
+                        "rank": candidate.rank,
+                        "asset_id": candidate.asset.asset.id,
+                        "gates": gates,
+                        "frame_gate": None,
+                        "skip_reason": (
+                            "character" if not char_ok else "action"
+                        ),
+                    }
+                )
+                continue
+
+            nb_frames = candidate.asset.nb_frames
+            if nb_frames >= requirement.target_frames:
+                # clip eligible: select immediately and stop.
+                checked.append(
+                    {
+                        "rank": candidate.rank,
+                        "asset_id": candidate.asset.asset.id,
+                        "gates": gates,
+                        "frame_gate": "clip_eligible",
+                        "skip_reason": None,
+                    }
+                )
+                if nb_frames == requirement.target_frames:
                     reason_code = "exact_length"
                     source_in_frame = 0
                 else:
                     reason_code = "center_trim"
                     source_in_frame = (
-                        candidate.asset.nb_frames - requirement.target_frames
+                        nb_frames - requirement.target_frames
                     ) // 2
                 selected = Selection(
                     asset=candidate.asset,
@@ -426,22 +468,43 @@ def retrieve(
                     score=candidate.score,
                 )
                 break
-            skip_reason = (
-                "character"
-                if not char_ok
-                else "action"
-                if not action_ok
-                else "frames"
-            )
+
+            if nb_frames >= MIN_FREEZE_SOURCE_FRAMES:
+                # freeze eligible: save the highest-ranked fallback only.
+                checked.append(
+                    {
+                        "rank": candidate.rank,
+                        "asset_id": candidate.asset.asset.id,
+                        "gates": gates,
+                        "frame_gate": "freeze_eligible",
+                        "skip_reason": None,
+                        "freeze_fallback": True,
+                    }
+                )
+                if freeze_fallback is None:
+                    freeze_fallback = candidate
+                continue
+
             checked.append(
                 {
                     "rank": candidate.rank,
                     "asset_id": candidate.asset.asset.id,
                     "gates": gates,
-                    "skip_reason": skip_reason,
+                    "frame_gate": "too_short",
+                    "skip_reason": "too_short",
                 }
             )
 
+        if selected is None and freeze_fallback is not None:
+            # No full clip anywhere: freeze the highest-ranked short source.
+            selected = Selection(
+                asset=freeze_fallback.asset,
+                rank=freeze_fallback.rank,
+                reason_code="short_source_freeze",
+                source_in_frame=0,
+                source_frame_count=freeze_fallback.asset.nb_frames,
+                score=freeze_fallback.score,
+            )
         if selected is None:
             selected = Selection(
                 asset=None,
@@ -466,20 +529,27 @@ def retrieve(
                     }
                     for candidate in top3
                 ],
-                "selected": (
-                    None
-                    if selected.asset is None
-                    else {
-                        "rank": selected.rank,
-                        "asset_id": selected.asset.asset.id,
-                        "reason_code": selected.reason_code,
-                        "source_in_frame": selected.source_in_frame,
-                        "source_frame_count": selected.source_frame_count,
-                    }
-                ),
+                "selected": {
+                    "selected_asset_id": (
+                        selected.asset.asset.id
+                        if selected.asset is not None
+                        else None
+                    ),
+                    "selected_global_rank": selected.rank,
+                    "selected_strategy": selection_strategy(
+                        selected.reason_code
+                    ),
+                    "reason_code": selected.reason_code,
+                    "source_in_frame": selected.source_in_frame,
+                    "source_frame_count": selected.source_frame_count,
+                },
                 "checked_gates": checked,
                 "unique_skip_reasons": sorted(
-                    {entry["skip_reason"] for entry in checked}
+                    {
+                        entry["skip_reason"]
+                        for entry in checked
+                        if entry["skip_reason"]
+                    }
                 ),
             }
         )

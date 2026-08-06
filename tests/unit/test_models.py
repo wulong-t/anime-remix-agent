@@ -47,6 +47,27 @@ def _clip_item(**overrides: object) -> dict[str, object]:
     return base
 
 
+def _freeze_item(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "shot_id": "shot_001",
+        "order": 1,
+        "requirement": _requirement().model_dump(mode="json"),
+        "strategy": "freeze_frame",
+        "source_asset_id": "clip_001",
+        "source_path": "clips/clip_001.mp4",
+        "source_size_bytes": 1000,
+        "source_sha256": "a" * 64,
+        "source_in_frame": 0,
+        "source_frame_count": 24,
+        "target_frames": 72,
+        "score": None,
+        "reason_code": "short_source_freeze",
+        "reason": "short_source_freeze",
+    }
+    base.update(overrides)
+    return base
+
+
 def _timeline_doc(items: list[dict[str, object]]) -> dict[str, object]:
     return {
         "schema_version": "1.9",
@@ -186,6 +207,7 @@ def test_timeline_item_shot_id_must_match_requirement() -> None:
 
 def test_strategy_enum_values() -> None:
     assert TimelineStrategy.CLIP.value == "clip"
+    assert TimelineStrategy.FREEZE_FRAME.value == "freeze_frame"
     assert TimelineStrategy.PLACEHOLDER.value == "placeholder"
 
 
@@ -203,7 +225,7 @@ def test_path_rejects_int_bool_list_and_dict() -> None:
 
 
 def test_strategy_rejects_int_bool_and_unknown_string() -> None:
-    for bad in (1, False, "freeze_frame", "CLIP"):
+    for bad in (1, False, "unfreeze", "CLIP"):
         with pytest.raises(ValidationError):
             TypeAdapter(Timeline).validate_python(
                 _timeline_doc([_clip_item(strategy=bad)])
@@ -274,17 +296,86 @@ def test_reason_code_is_closed_literal() -> None:
         TypeAdapter(Timeline).validate_python(
             _timeline_doc([_clip_item(reason_code="bogus")])
         )
-    for valid in ("exact_length", "center_trim", "no_candidate"):
-        item = _clip_item(reason_code=valid)
-        if valid == "no_candidate":
-            item["strategy"] = "placeholder"
-            item["source_asset_id"] = None
-            item["source_path"] = None
-            item["source_size_bytes"] = None
-            item["source_sha256"] = None
-            item["source_in_frame"] = 0
-            item["source_frame_count"] = 0
-        TypeAdapter(Timeline).validate_python(_timeline_doc([item]))
+    TypeAdapter(Timeline).validate_python(
+        _timeline_doc([_clip_item(reason_code="exact_length")])
+    )
+    TypeAdapter(Timeline).validate_python(
+        _timeline_doc([_clip_item(reason_code="center_trim")])
+    )
+    TypeAdapter(Timeline).validate_python(
+        _timeline_doc([_freeze_item(reason_code="short_source_freeze")])
+    )
+    placeholder = _freeze_item(
+        strategy="placeholder",
+        reason_code="no_candidate",
+        source_asset_id=None,
+        source_path=None,
+        source_size_bytes=None,
+        source_sha256=None,
+        source_in_frame=0,
+        source_frame_count=0,
+    )
+    TypeAdapter(Timeline).validate_python(_timeline_doc([placeholder]))
+
+
+def test_freeze_frame_valid_model() -> None:
+    TypeAdapter(Timeline).validate_python(_timeline_doc([_freeze_item()]))
+
+
+def test_freeze_frame_requires_complete_source_fields() -> None:
+    for field in (
+        "source_asset_id",
+        "source_path",
+        "source_size_bytes",
+        "source_sha256",
+    ):
+        item = _freeze_item(**{field: None})
+        with pytest.raises(ValidationError):
+            TypeAdapter(Timeline).validate_python(_timeline_doc([item]))
+
+
+def test_freeze_frame_reason_code_mapping() -> None:
+    # freeze_frame must use short_source_freeze only.
+    for bad in ("exact_length", "center_trim", "no_candidate"):
+        with pytest.raises(ValidationError):
+            TypeAdapter(Timeline).validate_python(
+                _timeline_doc([_freeze_item(reason_code=bad)])
+            )
+    # clip must not use short_source_freeze.
+    with pytest.raises(ValidationError):
+        TypeAdapter(Timeline).validate_python(
+            _timeline_doc([_clip_item(reason_code="short_source_freeze")])
+        )
+    # placeholder must not use short_source_freeze.
+    placeholder = _freeze_item(
+        strategy="placeholder",
+        reason_code="short_source_freeze",
+        source_asset_id=None,
+        source_path=None,
+        source_size_bytes=None,
+        source_sha256=None,
+        source_in_frame=0,
+        source_frame_count=0,
+    )
+    with pytest.raises(ValidationError):
+        TypeAdapter(Timeline).validate_python(_timeline_doc([placeholder]))
+
+
+def test_freeze_frame_source_frame_count_bounds() -> None:
+    for bad_count in (0, -1):
+        with pytest.raises(ValidationError):
+            TypeAdapter(Timeline).validate_python(
+                _timeline_doc([_freeze_item(source_frame_count=bad_count)])
+            )
+    for bad_count in (72, 100):
+        with pytest.raises(ValidationError):
+            TypeAdapter(Timeline).validate_python(
+                _timeline_doc([_freeze_item(source_frame_count=bad_count)])
+            )
+    with pytest.raises(ValidationError):
+        TypeAdapter(Timeline).validate_python(
+            _timeline_doc([_freeze_item(source_in_frame=-1)])
+        )
 
 
 def test_timeline_array_order_must_match_item_order() -> None:

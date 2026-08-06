@@ -96,6 +96,71 @@ def test_compile_placeholder_timeline() -> None:
     assert timeline.items[0].source_asset_id is None
 
 
+def test_compile_freeze_timeline(tmp_path: Path) -> None:
+    req = _requirement()
+    probed = _probed()
+    probed.nb_frames = 30
+    probed.resolved_path = tmp_path / "demo" / "clips" / "clip_001.mp4"
+    selection = Selection(
+        asset=probed,
+        rank=1,
+        reason_code="short_source_freeze",
+        source_in_frame=0,
+        source_frame_count=30,
+        score=None,
+    )
+    timeline = compile_timeline(
+        [req],
+        {"shot_001": selection},
+        target_dir=tmp_path / "runs" / "demo-001",
+        source_sha256={"clip_001": "a" * 64},
+    )
+    item = timeline.items[0]
+    assert item.strategy.value == "freeze_frame"
+    assert item.source_in_frame == 0
+    assert item.source_frame_count == 30
+    assert item.reason_code == "short_source_freeze"
+
+
+def test_compile_freeze_rejects_planner_invariants(tmp_path: Path) -> None:
+    req = _requirement()
+    probed = _probed()
+    probed.nb_frames = 30
+    probed.resolved_path = tmp_path / "demo" / "clips" / "clip_001.mp4"
+
+    bad_start = Selection(
+        asset=probed,
+        rank=1,
+        reason_code="short_source_freeze",
+        source_in_frame=1,
+        source_frame_count=29,
+        score=None,
+    )
+    with pytest.raises(TimelineValidationError):
+        compile_timeline(
+            [req],
+            {"shot_001": bad_start},
+            target_dir=tmp_path / "runs" / "demo-001",
+            source_sha256={"clip_001": "a" * 64},
+        )
+
+    bad_count = Selection(
+        asset=probed,
+        rank=1,
+        reason_code="short_source_freeze",
+        source_in_frame=0,
+        source_frame_count=20,
+        score=None,
+    )
+    with pytest.raises(TimelineValidationError):
+        compile_timeline(
+            [req],
+            {"shot_001": bad_count},
+            target_dir=tmp_path / "runs" / "demo-001",
+            source_sha256={"clip_001": "a" * 64},
+        )
+
+
 def test_missing_selection_raises() -> None:
     with pytest.raises(TimelineValidationError):
         compile_timeline(

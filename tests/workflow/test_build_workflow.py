@@ -282,3 +282,115 @@ def test_build_creates_missing_parent_dirs(
     )
     assert target.exists()
     assert (target / "output.mp4").exists()
+
+
+def test_build_freeze_timeline_and_independent_rerender(
+    tmp_path_factory: pytest.TempPathFactory,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path_factory.mktemp("freeze-demo")
+    clips_dir = root / "clips"
+    clips_dir.mkdir()
+    ffmpeg = shutil.which("ffmpeg")
+    assert ffmpeg, "ffmpeg must be installed for media tests"
+    specs = [
+        ("clip_short_24", 24, "char_lin_xia", "林夏", "loc_school_rooftop", "学校天台", "独自站立", "林夏独自站在学校天台。"),
+        ("clip_short_30", 30, "char_lu_chen", "陆辰", "loc_classroom", "教室", "沉默注视", "陆辰在教室沉默注视窗外。"),
+        ("clip_short_48", 48, "char_lin_xia", "林夏", "loc_school_rooftop", "学校天台", "转身离开", "林夏在天台转身离开。"),
+    ]
+    clips = []
+    for clip_id, frames, char_id, name, loc_id, location, action, description in specs:
+        path = clips_dir / f"{clip_id}.mp4"
+        _encode_clip(ffmpeg, path, frames=frames)
+        clips.append(
+            {
+                "id": clip_id,
+                "path": f"clips/{clip_id}.mp4",
+                "characters": [{"id": char_id, "name": name}],
+                "location_id": loc_id,
+                "location_name": location,
+                "action": action,
+                "description": description,
+            }
+        )
+    (root / "script.md").write_text(
+        "林夏独自站在学校天台，望着远方。\n\n"
+        "陆辰在教室沉默注视窗外。\n\n"
+        "林夏在天台转身离开。",
+        encoding="utf-8",
+    )
+    (root / "clips.json").write_text(
+        json.dumps(
+            {"schema_version": "1.9", "clips": clips},
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    target = tmp_path / "runs" / "freeze-demo-001"
+    result = build(
+        script_path=root / "script.md",
+        clips_path=root / "clips.json",
+        output_dir=target,
+    )
+    assert result == target
+
+    timeline = json.loads(
+        (target / "timeline.json").read_text(encoding="utf-8")
+    )
+    assert len(timeline["items"]) == 3
+    assert all(item["strategy"] == "freeze_frame" for item in timeline["items"])
+    assert [item["source_frame_count"] for item in timeline["items"]] == [
+        24,
+        30,
+        48,
+    ]
+    assert all(item["source_in_frame"] == 0 for item in timeline["items"])
+    assert all(
+        item["reason_code"] == "short_source_freeze"
+        for item in timeline["items"]
+    )
+    total = sum(item["target_frames"] for item in timeline["items"])
+    assert total == 216
+
+    retrieval = json.loads(
+        (target / "retrieval_results.json").read_text(encoding="utf-8")
+    )
+    first_shot = retrieval["shots"][0]
+    assert first_shot["selected"]["selected_strategy"] == "freeze_frame"
+    assert first_shot["selected"]["reason_code"] == "short_source_freeze"
+    assert any(
+        entry["frame_gate"] == "freeze_eligible"
+        for entry in first_shot["checked_gates"]
+    )
+
+    toolkit = FFmpegToolkit()
+    toolkit.validate_final(
+        target / "output.mp4",
+        total_frames=total,
+        profile=RenderProfile(),
+    )
+
+    script_backup = root / "script.md.bak"
+    clips_backup = root / "clips.json.bak"
+    (root / "script.md").rename(script_backup)
+    (root / "clips.json").rename(clips_backup)
+    try:
+        rerendered = tmp_path / "freeze-rerendered.mp4"
+        render_timeline(
+            target / "timeline.json",
+            rerendered,
+            toolkit=FFmpegToolkit(),
+        )
+        assert rerendered.exists()
+        FFmpegToolkit().validate_final(
+            rerendered,
+            total_frames=total,
+            profile=RenderProfile(),
+        )
+        assert sha256_file(target / "output.mp4") == sha256_file(rerendered)
+    finally:
+        script_backup.rename(root / "script.md")
+        clips_backup.rename(root / "clips.json")
