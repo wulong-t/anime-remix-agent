@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from decimal import ROUND_CEILING, Decimal
 
+from anime_remix.domain.enums import Emotion, ShotScale
 from anime_remix.domain.models import (
     AliasesDocument,
     CharacterRef,
@@ -37,6 +38,79 @@ _DIALOGUE_PAIRS = (
 )
 _ASCII_ID = re.compile(r"^[A-Za-z0-9_]+$")
 _TERM_TYPE_RANK = {"id": 0, "name": 1, "alias": 2}
+
+# Fixed closed dictionaries (AGENTS.md v1.12 section 10.7). Never extend.
+EMOTION_TERMS: dict[Emotion, tuple[str, ...]] = {
+    Emotion.HAPPY: ("开心", "高兴", "喜悦", "微笑", "大笑"),
+    Emotion.SAD: ("难过", "悲伤", "伤心", "哭泣", "落泪"),
+    Emotion.ANGRY: ("生气", "愤怒", "恼火"),
+    Emotion.FEARFUL: ("害怕", "恐惧", "惊恐"),
+    Emotion.SURPRISED: ("惊讶", "震惊", "吃惊"),
+    Emotion.TENSE: ("紧张", "焦急", "不安"),
+    Emotion.CALM: ("平静", "冷静", "镇定"),
+}
+
+SHOT_SCALE_TERMS: dict[ShotScale, tuple[str, ...]] = {
+    ShotScale.CLOSE_UP: ("特写", "近景"),
+    ShotScale.MEDIUM: ("中景", "半身"),
+    ShotScale.WIDE: ("全景", "远景"),
+}
+
+EMOTION_ORDER: tuple[Emotion, ...] = (
+    Emotion.HAPPY,
+    Emotion.SAD,
+    Emotion.ANGRY,
+    Emotion.FEARFUL,
+    Emotion.SURPRISED,
+    Emotion.TENSE,
+    Emotion.CALM,
+)
+
+SHOT_SCALE_ORDER: tuple[ShotScale, ...] = (
+    ShotScale.CLOSE_UP,
+    ShotScale.MEDIUM,
+    ShotScale.WIDE,
+)
+
+
+def _extract_semantic(
+    text: str,
+    terms_by_enum: dict[Emotion | ShotScale, tuple[str, ...]],
+    enum_order: tuple[Emotion | ShotScale, ...],
+) -> Emotion | ShotScale | None:
+    """Deterministic first-hit literal extraction for one semantic category."""
+
+    enum_index = {value: index for index, value in enumerate(enum_order)}
+    hits: list[tuple[int, int, Emotion | ShotScale, str]] = []
+    for enum_value in enum_order:
+        for term in terms_by_enum.get(enum_value, ()):
+            for match in re.finditer(re.escape(term), text):
+                hits.append((match.start(), match.end(), enum_value, term))
+    if not hits:
+        return None
+    hits.sort(
+        key=lambda hit: (
+            hit[0],
+            -(hit[1] - hit[0]),
+            enum_index[hit[2]],
+            hit[3].encode("utf-8"),
+        )
+    )
+    return hits[0][2]
+
+
+def extract_emotion(text: str) -> Emotion | None:
+    """Extract one closed Emotion from fixed literal keywords, or None."""
+
+    result = _extract_semantic(text, EMOTION_TERMS, EMOTION_ORDER)
+    return result if isinstance(result, Emotion) else None
+
+
+def extract_shot_scale(text: str) -> ShotScale | None:
+    """Extract one closed ShotScale from fixed literal keywords, or None."""
+
+    result = _extract_semantic(text, SHOT_SCALE_TERMS, SHOT_SCALE_ORDER)
+    return result if isinstance(result, ShotScale) else None
 
 
 def split_paragraphs(text: str) -> list[str]:
@@ -316,6 +390,8 @@ def parse_script(
                 action=action,
                 target_frames=compute_target_frames(dialogue),
                 dialogue=dialogue or None,
+                emotion=extract_emotion(paragraph),
+                shot_scale=extract_shot_scale(paragraph),
             )
         )
     return requirements

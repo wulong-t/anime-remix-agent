@@ -15,7 +15,7 @@ from pydantic import (
     model_validator,
 )
 
-from anime_remix.domain.enums import TimelineStrategy
+from anime_remix.domain.enums import Emotion, ShotScale, TimelineStrategy
 
 STRICT_CONFIG = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
@@ -68,12 +68,28 @@ class ClipAsset(BaseModel):
     location_name: str | None = None
     action: str
     description: str
+    emotion: Emotion | None = None
+    shot_scale: ShotScale | None = None
 
     @field_validator("path", mode="before")
     @classmethod
     def _coerce_path(cls, value: object) -> object:
         if isinstance(value, str):
             return Path(value)
+        return value
+
+    @field_validator("emotion", mode="before")
+    @classmethod
+    def _coerce_emotion(cls, value: object) -> object:
+        if isinstance(value, str):
+            return Emotion(value)
+        return value
+
+    @field_validator("shot_scale", mode="before")
+    @classmethod
+    def _coerce_shot_scale(cls, value: object) -> object:
+        if isinstance(value, str):
+            return ShotScale(value)
         return value
 
     @model_validator(mode="after")
@@ -187,6 +203,22 @@ class ShotRequirement(BaseModel):
     action: str
     target_frames: int = Field(gt=0)
     dialogue: str | None = None
+    emotion: Emotion | None = None
+    shot_scale: ShotScale | None = None
+
+    @field_validator("emotion", mode="before")
+    @classmethod
+    def _coerce_emotion(cls, value: object) -> object:
+        if isinstance(value, str):
+            return Emotion(value)
+        return value
+
+    @field_validator("shot_scale", mode="before")
+    @classmethod
+    def _coerce_shot_scale(cls, value: object) -> object:
+        if isinstance(value, str):
+            return ShotScale(value)
+        return value
 
     @model_validator(mode="after")
     def _validate_id(self) -> ShotRequirement:
@@ -206,10 +238,21 @@ class ScoreBreakdown(BaseModel):
     location: Decimal | None = None
     action: Decimal
     duration: Decimal
+    emotion: Decimal | None = None
+    shot_scale: Decimal | None = None
     active_weights: dict[str, Decimal]
     total: Decimal
 
-    @field_validator("character", "location", "action", "duration", "total", mode="before")
+    @field_validator(
+        "character",
+        "location",
+        "action",
+        "duration",
+        "emotion",
+        "shot_scale",
+        "total",
+        mode="before",
+    )
     @classmethod
     def _coerce_score_fields(cls, value: object) -> object:
         return _coerce_decimal(value)

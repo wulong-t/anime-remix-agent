@@ -21,10 +21,12 @@ SEQUENCE_MATCHER_MAX_CODEPOINTS = 256
 NORMALIZE_MAX_CODEPOINTS = 2048
 
 DEFAULT_WEIGHTS: dict[str, Decimal] = {
-    "character": Decimal("0.25"),
-    "location": Decimal("0.15"),
-    "action": Decimal("0.45"),
-    "duration": Decimal("0.15"),
+    "character": Decimal("0.20"),
+    "location": Decimal("0.12"),
+    "action": Decimal("0.36"),
+    "duration": Decimal("0.12"),
+    "emotion": Decimal("0.10"),
+    "shot_scale": Decimal("0.10"),
 }
 TOTAL_GATE = Decimal("0.55")
 CHARACTER_GATE = Decimal("0.50")
@@ -221,6 +223,28 @@ def _duration_score(nb_frames: int, target_frames: int) -> Decimal:
     return quantize_score(raw)
 
 
+def _emotion_score(
+    requirement: ShotRequirement,
+    clip: ClipAsset,
+) -> Decimal | None:
+    if requirement.emotion is None:
+        return None
+    if clip.emotion == requirement.emotion:
+        return Decimal("1.000000")
+    return Decimal("0.000000")
+
+
+def _shot_scale_score(
+    requirement: ShotRequirement,
+    clip: ClipAsset,
+) -> Decimal | None:
+    if requirement.shot_scale is None:
+        return None
+    if clip.shot_scale == requirement.shot_scale:
+        return Decimal("1.000000")
+    return Decimal("0.000000")
+
+
 @dataclass
 class _ClipIndex:
     asset: ClipAsset
@@ -333,6 +357,8 @@ def _score_requirement(
     location = _location_score(req, clip, clip_index.location_name_norm)
     action = _action_score(req_index, clip_index)
     duration = _duration_score(probed.nb_frames, req.target_frames)
+    emotion = _emotion_score(req, clip)
+    shot_scale = _shot_scale_score(req, clip)
     active: set[str] = set()
     components: dict[str, Decimal] = {}
     if character is not None:
@@ -345,6 +371,12 @@ def _score_requirement(
     components["action"] = action
     active.add("duration")
     components["duration"] = duration
+    if emotion is not None:
+        active.add("emotion")
+        components["emotion"] = emotion
+    if shot_scale is not None:
+        active.add("shot_scale")
+        components["shot_scale"] = shot_scale
     weights = _active_weights(active)
     total = quantize_score(
         sum(weights[key] * components[key] for key in active)
@@ -354,6 +386,8 @@ def _score_requirement(
         location=location,
         action=action,
         duration=duration,
+        emotion=emotion,
+        shot_scale=shot_scale,
         active_weights=weights,
         total=total,
     )
