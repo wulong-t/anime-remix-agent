@@ -1,0 +1,6 @@
+.venv/
+work/
+outputs/
+__pycache__/
+.ipynb_checkpoints/
+input/*.mp4

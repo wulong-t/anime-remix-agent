@@ -1,0 +1,23 @@
+[project]
+name = "layered-video-g0"
+version = "0.1.0"
+description = "G0-L minimal two-layer video decomposition experiment (Character + Background) for anime-remix-agent"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "huggingface_hub>=0.24",
+    "numpy>=2.0",
+    "opencv-python-headless>=4.10",
+    "pillow>=10",
+    # The SAM2 runtime torch/torchvision are intentionally supplied by the
+    # host environment (torch 2.8.0+cu128). They are listed here only so the
+    # lockfile is complete; `uv sync --no-install-package torch
+    # --no-install-package torchvision` skips installing them into .venv.
+    "torch==2.8.0",
+    "torchvision==0.23.0",
+    "sam-2 @ git+https://github.com/facebookresearch/sam2.git",
+]
+
+[tool.uv]
+# Keep the experiment environment self-contained under this directory.
+package = false
