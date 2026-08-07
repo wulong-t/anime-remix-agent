@@ -28,7 +28,10 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = "-ra -m 'not benchmark'"
+markers = [
+    "benchmark: wall-clock retrieval benchmark (run explicitly, not part of normal CI)",
+]
 
 [tool.ruff.lint]
 ignore = ["B008"]
