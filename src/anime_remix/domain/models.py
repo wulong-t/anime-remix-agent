@@ -29,6 +29,36 @@ ReasonCode = Literal[
     "no_candidate",
 ]
 
+ContentGateValue = Literal[
+    "passed",
+    "failed_character",
+    "failed_action",
+]
+FrameGateValue = Literal[
+    "clip_eligible",
+    "freeze_eligible",
+    "too_short",
+]
+CandidateDecision = Literal[
+    "selected_clip",
+    "saved_freeze_fallback",
+    "freeze_eligible_not_saved",
+    "too_short",
+    "skipped_character_gate",
+    "skipped_action_gate",
+    "stop_total_below_threshold",
+]
+StopReasonValue = Literal[
+    "selected_clip",
+    "total_below_threshold",
+    "exhausted_candidates",
+]
+SelectedStrategyValue = Literal[
+    "clip",
+    "freeze_frame",
+    "placeholder",
+]
+
 
 def quantize_score(value: Decimal) -> Decimal:
     """Quantize a score to SCORE_QUANTUM using Decimal HALF_UP."""
@@ -265,6 +295,146 @@ class ScoreBreakdown(BaseModel):
                 key: _coerce_decimal(item) for key, item in value.items()
             }
         return value
+
+
+class ScannedCandidateTrace(BaseModel):
+    """One actually scanned candidate inside selection_trace (AGENTS v1.13)."""
+
+    model_config = STRICT_CONFIG
+
+    global_rank: int = Field(ge=1)
+    asset_id: str
+    total: Decimal
+    character: Decimal | None = None
+    location: Decimal | None = None
+    action: Decimal
+    duration: Decimal
+    emotion: Decimal | None = None
+    shot_scale: Decimal | None = None
+    content_gate: ContentGateValue | None = None
+    frame_gate: FrameGateValue | None = None
+    decision: CandidateDecision
+
+    @field_validator(
+        "total",
+        "character",
+        "location",
+        "action",
+        "duration",
+        "emotion",
+        "shot_scale",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_score_fields(cls, value: object) -> object:
+        return _coerce_decimal(value)
+
+    @model_validator(mode="after")
+    def _validate_fields(self) -> ScannedCandidateTrace:
+        if not ID_PATTERN.fullmatch(self.asset_id):
+            raise ValueError(f"invalid asset_id {self.asset_id!r}")
+        if self.content_gate is None and self.frame_gate is not None:
+            raise ValueError("frame_gate requires content_gate passed")
+        if self.content_gate == "passed" and self.frame_gate is None:
+            raise ValueError("passed content_gate requires a frame_gate")
+        if self.content_gate in ("failed_character", "failed_action"):
+            if self.frame_gate is not None:
+                raise ValueError("failed content_gate must not carry frame_gate")
+            if self.decision not in (
+                "skipped_character_gate",
+                "skipped_action_gate",
+            ):
+                raise ValueError(
+                    "failed content_gate requires skipped decision"
+                )
+        if self.content_gate is None and self.decision != (
+            "stop_total_below_threshold"
+        ):
+            raise ValueError(
+                "null content_gate requires stop_total_below_threshold"
+            )
+        return self
+
+
+class FinalDecisionTrace(BaseModel):
+    """final_decision mirrors the final Selection and timeline item."""
+
+    model_config = STRICT_CONFIG
+
+    selected_asset_id: str | None = None
+    selected_global_rank: int | None = None
+    selected_strategy: SelectedStrategyValue
+    reason_code: ReasonCode
+    source_in_frame: int = Field(ge=0)
+    source_frame_count: int = Field(ge=0)
+    target_frames: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _validate_decision(self) -> FinalDecisionTrace:
+        if self.selected_asset_id is None:
+            if self.selected_global_rank is not None:
+                raise ValueError(
+                    "placeholder final decision must not have a rank"
+                )
+            if (
+                self.selected_strategy != "placeholder"
+                or self.reason_code != "no_candidate"
+                or self.source_in_frame != 0
+                or self.source_frame_count != 0
+            ):
+                raise ValueError(
+                    "placeholder final decision must be "
+                    "placeholder/no_candidate/0/0"
+                )
+            return self
+        if self.selected_global_rank is None or self.selected_global_rank < 1:
+            raise ValueError(
+                "selected final decision requires positive global rank"
+            )
+        if not ID_PATTERN.fullmatch(self.selected_asset_id):
+            raise ValueError(
+                f"invalid selected_asset_id {self.selected_asset_id!r}"
+            )
+        if self.selected_strategy not in ("clip", "freeze_frame"):
+            raise ValueError(
+                "selected source strategy must be clip or freeze_frame"
+            )
+        return self
+
+
+class SelectionTrace(BaseModel):
+    """Formal deterministic selection trace for one shot (AGENTS v1.13)."""
+
+    model_config = STRICT_CONFIG
+
+    scanned_candidates: list[ScannedCandidateTrace] = Field(
+        default_factory=list
+    )
+    stop_reason: StopReasonValue
+    freeze_fallback_asset_id: str | None = None
+    final_decision: FinalDecisionTrace
+
+    @model_validator(mode="after")
+    def _validate_trace(self) -> SelectionTrace:
+        if self.freeze_fallback_asset_id is not None:
+            if not ID_PATTERN.fullmatch(self.freeze_fallback_asset_id):
+                raise ValueError(
+                    f"invalid freeze_fallback_asset_id "
+                    f"{self.freeze_fallback_asset_id!r}"
+                )
+            saved = [
+                entry
+                for entry in self.scanned_candidates
+                if entry.decision == "saved_freeze_fallback"
+            ]
+            if len(saved) != 1 or saved[0].asset_id != (
+                self.freeze_fallback_asset_id
+            ):
+                raise ValueError(
+                    "freeze_fallback_asset_id must match the single "
+                    "saved_freeze_fallback entry"
+                )
+        return self
 
 
 class RenderProfile(BaseModel):

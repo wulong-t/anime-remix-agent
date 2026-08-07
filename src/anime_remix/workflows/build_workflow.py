@@ -17,6 +17,7 @@ from anime_remix.errors import (
     AnimeRemixError,
     InputValidationError,
     PublicationError,
+    UnsupportedMediaError,
 )
 from anime_remix.json_io import dump_json_atomic, sha256_file
 from anime_remix.services.aliases import load_aliases_document
@@ -75,6 +76,8 @@ def _build_manifest(
     finished_at: str | None,
     selected_source_sha256: dict[str, str] | None = None,
     core_artifact_sha256: str | None = None,
+    selected_source_frame_audit: dict[str, dict[str, int]] | None = None,
+    core_artifact_member_sha256: dict[str, str] | None = None,
     output_sha256: str | None = None,
     assumed_color_metadata_asset_ids: list[str] | None = None,
     failed_stage: str | None = None,
@@ -96,6 +99,8 @@ def _build_manifest(
         ),
         "selected_source_sha256": selected_source_sha256 or {},
         "core_artifact_sha256": core_artifact_sha256,
+        "selected_source_frame_audit": selected_source_frame_audit or {},
+        "core_artifact_member_sha256": core_artifact_member_sha256,
         "output_sha256": output_sha256,
         "assumed_color_metadata_asset_ids": assumed_color_metadata_asset_ids or [],
         "started_at": started_at,
@@ -166,6 +171,9 @@ def build(
     toolkit = FFmpegToolkit()
     staging: Path | None = None
     aliases_doc = None
+    selected_source_frame_audit: dict[str, dict[str, int]] = {}
+    core_artifact_sha256: str | None = None
+    core_artifact_member_sha256: dict[str, str] | None = None
     try:
         script_text = load_script_text(script_path)
         clips_doc = load_clips_document(clips_path)
@@ -209,6 +217,37 @@ def build(
         # Stable manifest ordering: one entry per selected asset, sorted by id.
         source_sha256 = dict(sorted(source_sha256.items()))
 
+        # Selected-source count_frames audit (AGENTS v1.13 section 12.8):
+        # runs before staging creation, in UTF-8 byte order by asset_id, only
+        # for unique selected assets. Mismatch fails immediately without
+        # staging / render / reretrieval / fallback.
+        selected_asset_ids = sorted(
+            {
+                selection.asset.asset.id
+                for selection in selections.values()
+                if selection.asset is not None
+            },
+            key=lambda asset_id: asset_id.encode("utf-8"),
+        )
+        probe_by_id = {probe.asset.id: probe for probe in probes}
+        for asset_id in selected_asset_ids:
+            probe = probe_by_id[asset_id]
+            counted = toolkit.count_source_frames(probe.resolved_path)
+            if counted != probe.nb_frames:
+                raise UnsupportedMediaError(
+                    "selected source count_frames audit mismatch",
+                    asset_id=asset_id,
+                    field="nb_frames",
+                    actual={
+                        "metadata_nb_frames": probe.nb_frames,
+                        "counted_nb_frames": counted,
+                    },
+                )
+            selected_source_frame_audit[asset_id] = {
+                "metadata_nb_frames": probe.nb_frames,
+                "counted_nb_frames": counted,
+            }
+
         timeline = compile_timeline(
             requirements,
             selections,
@@ -242,22 +281,28 @@ def build(
             started_at=started_at,
             finished_at=None,
             selected_source_sha256=source_sha256,
+            selected_source_frame_audit=selected_source_frame_audit,
+            core_artifact_member_sha256=None,
             assumed_color_metadata_asset_ids=assumed_ids,
         )
         dump_json_atomic(staging / "run_manifest.json", running_manifest)
         for name, doc in documents.items():
             dump_json_atomic(staging / name, doc)
-        core_artifact_sha256 = _sha256_bytes(
-            [
-                (staging / name).read_bytes()
-                for name in (
-                    "parsed_script.json",
-                    "retrieval_results.json",
-                    "timeline.json",
-                )
-            ]
+        core_artifact_names = (
+            "parsed_script.json",
+            "retrieval_results.json",
+            "timeline.json",
         )
+        core_artifact_sha256 = _sha256_bytes(
+            [(staging / name).read_bytes() for name in core_artifact_names]
+        )
+        core_artifact_member_sha256 = {
+            name: sha256_file(staging / name) for name in core_artifact_names
+        }
         running_manifest["core_artifact_sha256"] = core_artifact_sha256
+        running_manifest[
+            "core_artifact_member_sha256"
+        ] = core_artifact_member_sha256
         dump_json_atomic(staging / "run_manifest.json", running_manifest)
 
         render_timeline(
@@ -283,6 +328,8 @@ def build(
             finished_at=_now(),
             selected_source_sha256=source_sha256,
             core_artifact_sha256=core_artifact_sha256,
+            selected_source_frame_audit=selected_source_frame_audit,
+            core_artifact_member_sha256=core_artifact_member_sha256,
             output_sha256=sha256_file(output_path),
             assumed_color_metadata_asset_ids=assumed_ids,
         )
@@ -300,6 +347,10 @@ def build(
                 aliases_path=aliases_path,
                 started_at=started_at,
                 finished_at=_now(),
+                selected_source_sha256=source_sha256,
+                core_artifact_sha256=core_artifact_sha256,
+                selected_source_frame_audit=selected_source_frame_audit,
+                core_artifact_member_sha256=core_artifact_member_sha256,
                 failed_stage=exc.stage,
                 error_type=type(exc).__name__,
             )

@@ -530,6 +530,46 @@ class FFmpegToolkit:
             )
         return nb_frames
 
+    def count_source_frames(self, path: Path) -> int:
+        """Selected-source count_frames audit (AGENTS v1.13 section 12.8).
+
+        Runs a real ``ffprobe -count_frames`` and requires the video stream's
+        ``nb_read_frames`` field. Unlike ``source_nb_frames``, this never
+        falls back to ``nb_frames``.
+        """
+
+        info = self._probe(
+            path,
+            count_frames=True,
+            select="v:0",
+        )
+        streams = info.get("streams") or []
+        videos = [s for s in streams if s.get("codec_type") == "video"]
+        if len(videos) != 1:
+            raise MediaProbeError(
+                "count_frames audit requires exactly one video stream",
+                actual=len(videos),
+            )
+        raw = videos[0].get("nb_read_frames")
+        if raw is None:
+            raise MediaProbeError(
+                "count_frames audit missing nb_read_frames",
+                actual=None,
+            )
+        try:
+            counted = int(raw)
+        except (TypeError, ValueError):
+            raise MediaProbeError(
+                "count_frames audit nb_read_frames is not an integer",
+                actual=raw,
+            ) from None
+        if counted <= 0:
+            raise MediaProbeError(
+                "count_frames audit nb_read_frames must be positive",
+                actual=counted,
+            )
+        return counted
+
     def render_placeholder(
         self,
         item: TimelineItem,

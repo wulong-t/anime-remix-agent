@@ -10,9 +10,13 @@ from typing import Any
 
 from anime_remix.domain.models import (
     ClipAsset,
+    FinalDecisionTrace,
     ProbedClip,
+    ScannedCandidateTrace,
     ScoreBreakdown,
+    SelectionTrace,
     ShotRequirement,
+    StopReasonValue,
     quantize_score,
 )
 from anime_remix.errors import RetrievalError
@@ -430,8 +434,11 @@ def retrieve(
             candidate.rank = rank
 
         checked: list[dict[str, Any]] = []
+        scanned: list[ScannedCandidateTrace] = []
         selected: Selection | None = None
         freeze_fallback: ScoredCandidate | None = None
+        freeze_fallback_asset_id: str | None = None
+        stop_reason: StopReasonValue = "exhausted_candidates"
         for candidate in candidates:
             gates: dict[str, bool | None] = {
                 "total": candidate.score.total >= TOTAL_GATE,
@@ -449,6 +456,23 @@ def retrieve(
                         "skip_reason": "total_threshold",
                     }
                 )
+                scanned.append(
+                    ScannedCandidateTrace(
+                        global_rank=candidate.rank,
+                        asset_id=candidate.asset.asset.id,
+                        total=candidate.score.total,
+                        character=candidate.score.character,
+                        location=candidate.score.location,
+                        action=candidate.score.action,
+                        duration=candidate.score.duration,
+                        emotion=candidate.score.emotion,
+                        shot_scale=candidate.score.shot_scale,
+                        content_gate=None,
+                        frame_gate=None,
+                        decision="stop_total_below_threshold",
+                    )
+                )
+                stop_reason = "total_below_threshold"
                 break
             char_ok = (
                 not requirement.characters
@@ -472,6 +496,28 @@ def retrieve(
                         ),
                     }
                 )
+                scanned.append(
+                    ScannedCandidateTrace(
+                        global_rank=candidate.rank,
+                        asset_id=candidate.asset.asset.id,
+                        total=candidate.score.total,
+                        character=candidate.score.character,
+                        location=candidate.score.location,
+                        action=candidate.score.action,
+                        duration=candidate.score.duration,
+                        emotion=candidate.score.emotion,
+                        shot_scale=candidate.score.shot_scale,
+                        content_gate=(
+                            "failed_character" if not char_ok else "failed_action"
+                        ),
+                        frame_gate=None,
+                        decision=(
+                            "skipped_character_gate"
+                            if not char_ok
+                            else "skipped_action_gate"
+                        ),
+                    )
+                )
                 continue
 
             nb_frames = candidate.asset.nb_frames
@@ -485,6 +531,22 @@ def retrieve(
                         "frame_gate": "clip_eligible",
                         "skip_reason": None,
                     }
+                )
+                scanned.append(
+                    ScannedCandidateTrace(
+                        global_rank=candidate.rank,
+                        asset_id=candidate.asset.asset.id,
+                        total=candidate.score.total,
+                        character=candidate.score.character,
+                        location=candidate.score.location,
+                        action=candidate.score.action,
+                        duration=candidate.score.duration,
+                        emotion=candidate.score.emotion,
+                        shot_scale=candidate.score.shot_scale,
+                        content_gate="passed",
+                        frame_gate="clip_eligible",
+                        decision="selected_clip",
+                    )
                 )
                 if nb_frames == requirement.target_frames:
                     reason_code = "exact_length"
@@ -502,6 +564,7 @@ def retrieve(
                     source_frame_count=requirement.target_frames,
                     score=candidate.score,
                 )
+                stop_reason = "selected_clip"
                 break
 
             if nb_frames >= MIN_FREEZE_SOURCE_FRAMES:
@@ -518,6 +581,26 @@ def retrieve(
                 )
                 if freeze_fallback is None:
                     freeze_fallback = candidate
+                    freeze_fallback_asset_id = candidate.asset.asset.id
+                    freeze_decision = "saved_freeze_fallback"
+                else:
+                    freeze_decision = "freeze_eligible_not_saved"
+                scanned.append(
+                    ScannedCandidateTrace(
+                        global_rank=candidate.rank,
+                        asset_id=candidate.asset.asset.id,
+                        total=candidate.score.total,
+                        character=candidate.score.character,
+                        location=candidate.score.location,
+                        action=candidate.score.action,
+                        duration=candidate.score.duration,
+                        emotion=candidate.score.emotion,
+                        shot_scale=candidate.score.shot_scale,
+                        content_gate="passed",
+                        frame_gate="freeze_eligible",
+                        decision=freeze_decision,
+                    )
+                )
                 continue
 
             checked.append(
@@ -528,6 +611,22 @@ def retrieve(
                     "frame_gate": "too_short",
                     "skip_reason": "too_short",
                 }
+            )
+            scanned.append(
+                ScannedCandidateTrace(
+                    global_rank=candidate.rank,
+                    asset_id=candidate.asset.asset.id,
+                    total=candidate.score.total,
+                    character=candidate.score.character,
+                    location=candidate.score.location,
+                    action=candidate.score.action,
+                    duration=candidate.score.duration,
+                    emotion=candidate.score.emotion,
+                    shot_scale=candidate.score.shot_scale,
+                    content_gate="passed",
+                    frame_gate="too_short",
+                    decision="too_short",
+                )
             )
 
         if selected is None and freeze_fallback is not None:
@@ -550,6 +649,32 @@ def retrieve(
                 score=None,
             )
         selections[requirement.id] = selected
+        if selected.asset is not None:
+            final_decision = FinalDecisionTrace(
+                selected_asset_id=selected.asset.asset.id,
+                selected_global_rank=selected.rank,
+                selected_strategy=selection_strategy(selected.reason_code),
+                reason_code=selected.reason_code,
+                source_in_frame=selected.source_in_frame,
+                source_frame_count=selected.source_frame_count,
+                target_frames=requirement.target_frames,
+            )
+        else:
+            final_decision = FinalDecisionTrace(
+                selected_asset_id=None,
+                selected_global_rank=None,
+                selected_strategy="placeholder",
+                reason_code="no_candidate",
+                source_in_frame=0,
+                source_frame_count=0,
+                target_frames=requirement.target_frames,
+            )
+        selection_trace = SelectionTrace(
+            scanned_candidates=scanned,
+            stop_reason=stop_reason,
+            freeze_fallback_asset_id=freeze_fallback_asset_id,
+            final_decision=final_decision,
+        )
 
         top3 = candidates[:TOP_K]
         audit_shots.append(
@@ -579,6 +704,7 @@ def retrieve(
                     "source_frame_count": selected.source_frame_count,
                 },
                 "checked_gates": checked,
+                "selection_trace": selection_trace.model_dump(mode="json"),
                 "unique_skip_reasons": sorted(
                     {
                         entry["skip_reason"]
