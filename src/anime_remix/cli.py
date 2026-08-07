@@ -13,6 +13,7 @@ from anime_remix.errors import (
     ERROR_EXIT_CODES,
     AnimeRemixError,
 )
+from anime_remix.services.aliases import load_aliases_document
 from anime_remix.services.input_loader import (
     load_clips_document,
     load_script_text,
@@ -72,17 +73,24 @@ def validate_cmd(
     ctx: typer.Context,
     script: Path = typer.Option(..., "--script", help="Path to script.md"),
     clips: Path = typer.Option(..., "--clips", help="Path to clips.json"),
+    aliases: Path | None = typer.Option(
+        None,
+        "--aliases",
+        help="Path to aliases.json (optional; static target/conflict validation).",
+    ),
     probe_media: bool = typer.Option(
         False,
         "--probe-media",
         help="Also run FFprobe and enforce the MVR media contract.",
     ),
 ) -> None:
-    """Validate script and clips statically (and media with --probe-media)."""
+    """Validate script, clips and optional aliases (and media with --probe-media)."""
 
     def operation() -> None:
         script_text = load_script_text(script)
         clips_doc = load_clips_document(clips)
+        if aliases is not None:
+            load_aliases_document(aliases, clips_doc)
         if probe_media:
             toolkit = FFmpegToolkit()
             toolkit.check_capabilities()
@@ -133,6 +141,11 @@ def build_cmd(
     ctx: typer.Context,
     script: Path = typer.Option(..., "--script", help="Path to script.md"),
     clips: Path = typer.Option(..., "--clips", help="Path to clips.json"),
+    aliases: Path | None = typer.Option(
+        None,
+        "--aliases",
+        help="Path to aliases.json (optional; extends rule parser dictionaries).",
+    ),
     output: Path = typer.Option(..., "--output", help="New run directory"),
     parser: str = typer.Option(
         "rule",
@@ -146,6 +159,7 @@ def build_cmd(
         result = build(
             script_path=script,
             clips_path=clips,
+            aliases_path=aliases,
             output_dir=output,
             parser=parser,
         )

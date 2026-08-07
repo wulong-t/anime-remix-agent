@@ -6,11 +6,18 @@ import re
 from decimal import ROUND_CEILING, Decimal
 
 from anime_remix.domain.models import (
+    AliasesDocument,
     CharacterRef,
     ClipsDocument,
     ShotRequirement,
 )
 from anime_remix.errors import InputValidationError
+from anime_remix.services.aliases import (
+    build_canonical_characters,
+    build_canonical_locations,
+    character_alias_entries,
+    location_alias_entries,
+)
 from anime_remix.services.input_loader import _normalize_name
 
 DEFAULT_FRAMES = 72
@@ -29,6 +36,7 @@ _DIALOGUE_PAIRS = (
     ('"', '"'),
 )
 _ASCII_ID = re.compile(r"^[A-Za-z0-9_]+$")
+_TERM_TYPE_RANK = {"id": 0, "name": 1, "alias": 2}
 
 
 def split_paragraphs(text: str) -> list[str]:
@@ -87,7 +95,14 @@ def _boundary_pattern(display: str) -> str:
     return re.escape(display)
 
 
-def _build_dictionary(doc: ClipsDocument) -> dict[str, list[dict[str, str]]]:
+def _term_rank(entry: dict[str, str]) -> int:
+    return _TERM_TYPE_RANK.get(entry.get("term_type", ""), 1)
+
+
+def _build_dictionary(
+    doc: ClipsDocument,
+    aliases: AliasesDocument | None = None,
+) -> dict[str, list[dict[str, str]]]:
     characters: dict[str, dict[str, str]] = {}
     locations: dict[str, dict[str, str]] = {}
     for clip in doc.clips:
@@ -95,24 +110,92 @@ def _build_dictionary(doc: ClipsDocument) -> dict[str, list[dict[str, str]]]:
             if ref.id:
                 characters.setdefault(
                     ref.id,
-                    {"kind": "character", "key": ref.id, "display": ref.id, "id": ref.id, "name": ref.name or ""},
+                    {
+                        "kind": "character",
+                        "key": ref.id,
+                        "display": ref.id,
+                        "id": ref.id,
+                        "name": ref.name or "",
+                        "target_id": ref.id,
+                        "term_type": "id",
+                    },
                 )
             if ref.name:
                 characters.setdefault(
                     _normalize_name(ref.name),
-                    {"kind": "character", "key": _normalize_name(ref.name), "display": ref.name, "id": ref.id or "", "name": ref.name},
+                    {
+                        "kind": "character",
+                        "key": _normalize_name(ref.name),
+                        "display": ref.name,
+                        "id": ref.id or "",
+                        "name": ref.name,
+                        "target_id": ref.id or "",
+                        "term_type": "name",
+                    },
                 )
         if clip.location_id:
             locations.setdefault(
                 clip.location_id,
-                {"kind": "location", "key": clip.location_id, "display": clip.location_id, "id": clip.location_id, "name": clip.location_name or ""},
+                {
+                    "kind": "location",
+                    "key": clip.location_id,
+                    "display": clip.location_id,
+                    "id": clip.location_id,
+                    "name": clip.location_name or "",
+                    "target_id": clip.location_id,
+                    "term_type": "id",
+                },
             )
         if clip.location_name:
             locations.setdefault(
                 _normalize_name(clip.location_name),
-                {"kind": "location", "key": _normalize_name(clip.location_name), "display": clip.location_name, "id": clip.location_id or "", "name": clip.location_name},
+                {
+                    "kind": "location",
+                    "key": _normalize_name(clip.location_name),
+                    "display": clip.location_name,
+                    "id": clip.location_id or "",
+                    "name": clip.location_name,
+                    "target_id": clip.location_id or "",
+                    "term_type": "name",
+                },
             )
-    return {"character": list(characters.values()), "location": list(locations.values())}
+    if aliases is not None:
+        for entry in character_alias_entries(
+            aliases,
+            build_canonical_characters(doc),
+        ):
+            characters.setdefault(
+                f"alias:{entry['key']}:{entry['display']}",
+                entry,
+            )
+        for entry in location_alias_entries(
+            aliases,
+            build_canonical_locations(doc),
+        ):
+            locations.setdefault(
+                f"alias:{entry['key']}:{entry['display']}",
+                entry,
+            )
+    character_entries = list(characters.values())
+    location_entries = list(locations.values())
+    character_entries.sort(
+        key=lambda entry: (
+            entry["target_id"],
+            _term_rank(entry),
+            entry["display"],
+        )
+    )
+    location_entries.sort(
+        key=lambda entry: (
+            entry["target_id"],
+            _term_rank(entry),
+            entry["display"],
+        )
+    )
+    return {
+        "character": character_entries,
+        "location": location_entries,
+    }
 
 
 def find_longest_non_overlapping(
@@ -126,7 +209,15 @@ def find_longest_non_overlapping(
         pattern = _boundary_pattern(entry["display"])
         for m in re.finditer(pattern, text):
             matches.append((m.start(), m.end(), entry))
-    matches.sort(key=lambda t: (t[0], -(t[1] - t[0]), t[2]["key"]))
+    matches.sort(
+        key=lambda t: (
+            t[0],
+            -(t[1] - t[0]),
+            t[2].get("target_id") or t[2].get("key", ""),
+            _term_rank(t[2]),
+            t[2].get("display", ""),
+        )
+    )
     selected: list[tuple[int, int, dict[str, str]]] = []
     for start, end, entry in matches:
         if any(start < s_end and s_start < end for s_start, s_end, _ in selected):
@@ -134,6 +225,24 @@ def find_longest_non_overlapping(
         selected.append((start, end, entry))
     selected.sort(key=lambda t: t[0])
     return [entry for _, _, entry in selected]
+
+
+def _dedupe_entries(entries: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Keep the first hit per canonical target; order stays positional."""
+
+    seen: set[str] = set()
+    result: list[dict[str, str]] = []
+    for entry in entries:
+        identity = (
+            entry.get("target_id")
+            or entry.get("id")
+            or f"name:{_normalize_name(entry.get('name') or '')}"
+        )
+        if identity in seen:
+            continue
+        seen.add(identity)
+        result.append(entry)
+    return result
 
 
 def compute_target_frames(dialogue: str | None) -> int:
@@ -152,7 +261,11 @@ def compute_target_frames(dialogue: str | None) -> int:
     return min(MAX_FRAMES, max(MIN_FRAMES, target))
 
 
-def parse_script(text: str, clips: ClipsDocument) -> list[ShotRequirement]:
+def parse_script(
+    text: str,
+    clips: ClipsDocument,
+    aliases: AliasesDocument | None = None,
+) -> list[ShotRequirement]:
     """Parse a script into one ShotRequirement per non-empty paragraph."""
 
     paragraphs = split_paragraphs(text)
@@ -168,7 +281,7 @@ def parse_script(text: str, clips: ClipsDocument) -> list[ShotRequirement]:
                 actual=len(paragraph),
             )
 
-    dictionary = _build_dictionary(clips)
+    dictionary = _build_dictionary(clips, aliases)
     requirements: list[ShotRequirement] = []
     for index, paragraph in enumerate(paragraphs, start=1):
         dialogue, spans = extract_dialogues(paragraph)
@@ -178,10 +291,15 @@ def parse_script(text: str, clips: ClipsDocument) -> list[ShotRequirement]:
                 id=entry["id"] or None,
                 name=entry["name"] or None,
             )
-            for entry in find_longest_non_overlapping(paragraph, dictionary["character"])
+            for entry in _dedupe_entries(
+                find_longest_non_overlapping(
+                    paragraph,
+                    dictionary["character"],
+                )
+            )
         ]
-        location_entries = find_longest_non_overlapping(
-            paragraph, dictionary["location"]
+        location_entries = _dedupe_entries(
+            find_longest_non_overlapping(paragraph, dictionary["location"])
         )
         location_id = location_entries[0]["id"] or None if location_entries else None
         location_name = (

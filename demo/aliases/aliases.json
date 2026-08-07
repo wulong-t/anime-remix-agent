@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.9",
+  "character_aliases": [
+    {
+      "target_id": "char_lin_xia",
+      "aliases": [
+        "小夏"
+      ]
+    },
+    {
+      "target_id": "char_lu_chen",
+      "aliases": [
+        "阿辰"
+      ]
+    }
+  ],
+  "location_aliases": [
+    {
+      "target_id": "loc_school_rooftop",
+      "aliases": [
+        "楼顶"
+      ]
+    },
+    {
+      "target_id": "loc_classroom",
+      "aliases": [
+        "课堂"
+      ]
+    }
+  ]
+}

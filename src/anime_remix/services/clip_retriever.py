@@ -300,7 +300,8 @@ def _text_similarity_cached(
 def _active_weights(active: set[str]) -> dict[str, Decimal]:
     total = sum(DEFAULT_WEIGHTS[key] for key in active)
     return {
-        key: quantize_score(DEFAULT_WEIGHTS[key] / total) for key in active
+        key: quantize_score(DEFAULT_WEIGHTS[key] / total)
+        for key in sorted(active)
     }
 
 

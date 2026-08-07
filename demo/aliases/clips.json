@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.9",
+  "clips": [
+    {
+      "id": "clip_001",
+      "path": "clips/clip_001.mp4",
+      "characters": [
+        {
+          "id": "char_lin_xia",
+          "name": "林夏"
+        }
+      ],
+      "location_id": "loc_school_rooftop",
+      "location_name": "学校天台",
+      "action": "独自站立",
+      "description": "林夏独自站在学校天台。"
+    },
+    {
+      "id": "clip_002",
+      "path": "clips/clip_002.mp4",
+      "characters": [
+        {
+          "id": "char_lu_chen",
+          "name": "陆辰"
+        }
+      ],
+      "location_id": "loc_classroom",
+      "location_name": "教室",
+      "action": "沉默注视",
+      "description": "陆辰在教室沉默注视窗外。"
+    },
+    {
+      "id": "clip_003",
+      "path": "clips/clip_003.mp4",
+      "characters": [
+        {
+          "id": "char_lin_xia",
+          "name": "林夏"
+        }
+      ],
+      "location_id": "loc_school_rooftop",
+      "location_name": "学校天台",
+      "action": "转身离开",
+      "description": "林夏在天台转身离开。"
+    }
+  ]
+}

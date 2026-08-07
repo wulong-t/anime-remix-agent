@@ -19,6 +19,7 @@ from anime_remix.errors import (
     PublicationError,
 )
 from anime_remix.json_io import dump_json_atomic, sha256_file
+from anime_remix.services.aliases import load_aliases_document
 from anime_remix.services.clip_retriever import retrieve
 from anime_remix.services.input_loader import (
     load_clips_document,
@@ -69,6 +70,7 @@ def _build_manifest(
     toolkit: FFmpegToolkit,
     script_path: Path,
     clips_path: Path,
+    aliases_path: Path | None = None,
     started_at: str,
     finished_at: str | None,
     selected_source_sha256: dict[str, str] | None = None,
@@ -89,6 +91,9 @@ def _build_manifest(
         "actual_parser": "rule",
         "script_sha256": sha256_file(script_path),
         "clips_json_sha256": sha256_file(clips_path),
+        "aliases_sha256": (
+            sha256_file(aliases_path) if aliases_path is not None else None
+        ),
         "selected_source_sha256": selected_source_sha256 or {},
         "core_artifact_sha256": core_artifact_sha256,
         "output_sha256": output_sha256,
@@ -148,6 +153,7 @@ def build(
     output_dir: Path,
     *,
     parser: str = "rule",
+    aliases_path: Path | None = None,
 ) -> Path:
     """Run the fixed build workflow and publish a verified run directory."""
 
@@ -159,6 +165,7 @@ def build(
     started_at = _now()
     toolkit = FFmpegToolkit()
     staging: Path | None = None
+    aliases_doc = None
     try:
         script_text = load_script_text(script_path)
         clips_doc = load_clips_document(clips_path)
@@ -176,6 +183,8 @@ def build(
             clips_path=clips_path,
             clip_files=clip_files,
         )
+        if aliases_path is not None:
+            aliases_doc = load_aliases_document(aliases_path, clips_doc)
         toolkit.check_capabilities()
 
         probes: list[ProbedClip] = []
@@ -187,7 +196,7 @@ def build(
         for clip, resolved in ordered_pairs:
             probes.append(toolkit.probe_asset(resolved, clip))
 
-        requirements = parse_script(script_text, clips_doc)
+        requirements = parse_script(script_text, clips_doc, aliases=aliases_doc)
         selections, retrieval_doc = retrieve(requirements, probes)
         source_sha256: dict[str, str] = {}
         for selection in selections.values():
@@ -229,6 +238,7 @@ def build(
             toolkit=toolkit,
             script_path=script_path,
             clips_path=clips_path,
+            aliases_path=aliases_path,
             started_at=started_at,
             finished_at=None,
             selected_source_sha256=source_sha256,
@@ -268,6 +278,7 @@ def build(
             toolkit=toolkit,
             script_path=script_path,
             clips_path=clips_path,
+            aliases_path=aliases_path,
             started_at=started_at,
             finished_at=_now(),
             selected_source_sha256=source_sha256,
@@ -286,6 +297,7 @@ def build(
                 toolkit=toolkit,
                 script_path=script_path,
                 clips_path=clips_path,
+                aliases_path=aliases_path,
                 started_at=started_at,
                 finished_at=_now(),
                 failed_stage=exc.stage,

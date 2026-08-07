@@ -103,6 +103,58 @@ class ClipsDocument(BaseModel):
         return self
 
 
+class AliasEntry(BaseModel):
+    """One aliases.json entry: a canonical target plus its alias strings."""
+
+    model_config = STRICT_CONFIG
+
+    target_id: str
+    aliases: list[str]
+
+    @model_validator(mode="after")
+    def _validate_alias_entry(self) -> AliasEntry:
+        if not self.target_id.strip():
+            raise ValueError("target_id must be non-empty after stripping")
+        if not self.aliases:
+            raise ValueError("aliases must be a non-empty list")
+        if len(self.aliases) > 32:
+            raise ValueError(
+                f"aliases must be at most 32 per target, got {len(self.aliases)}"
+            )
+        for alias in self.aliases:
+            if not alias.strip():
+                raise ValueError("each alias must be non-empty after stripping")
+            if len(alias) > 128:
+                raise ValueError(
+                    f"alias exceeds 128 Unicode code points: {alias!r}"
+                )
+        return self
+
+
+class AliasesDocument(BaseModel):
+    """Strict aliases.json document (AGENTS.md v1.11 section 7.5)."""
+
+    model_config = STRICT_CONFIG
+
+    schema_version: Literal["1.9"] = "1.9"
+    character_aliases: list[AliasEntry] = Field(default_factory=list)
+    location_aliases: list[AliasEntry] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_limits(self) -> AliasesDocument:
+        if len(self.character_aliases) > 200:
+            raise ValueError(
+                "character_aliases must be at most 200 entries, "
+                f"got {len(self.character_aliases)}"
+            )
+        if len(self.location_aliases) > 200:
+            raise ValueError(
+                "location_aliases must be at most 200 entries, "
+                f"got {len(self.location_aliases)}"
+            )
+        return self
+
+
 class ProbedClip(BaseModel):
     model_config = STRICT_CONFIG
 
