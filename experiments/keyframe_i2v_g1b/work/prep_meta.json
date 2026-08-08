@@ -1,0 +1,69 @@
+{
+  "source_frame": {
+    "path": "/root/autodl-tmp/anime-remix-agent/experiments/layered_video_g0/work/g0_l2/source.mp4",
+    "sha256": "0e8a9704baa63f2f4419443d3102fc3dd526975ca93aca78f016026f6a6c36fd",
+    "frame_index": 0,
+    "timestamp_seconds": 0.0,
+    "resolution": [
+      1918,
+      1078
+    ]
+  },
+  "background": {
+    "path": "/root/autodl-tmp/anime-remix-agent/experiments/layered_video_g0/outputs/background.png",
+    "sha256": "542b1a46e885157c7ad1e09907152bfd6aabf9c8111967e32dc1191fb2c2d1b0",
+    "resolution": [
+      1918,
+      1078
+    ],
+    "provenance": "G0-L1: per-pixel temporal median where character absent + Telea inpaint for never-visible pixels (see layered_video_g0/outputs/report.json)"
+  },
+  "mask": {
+    "path": "/root/autodl-tmp/anime-remix-agent/experiments/layered_video_g0/work/masks.npy",
+    "semantics": "SAM2.1 character mask (255=character, 127=soft edge, 0=background)",
+    "frame0_area_ratio": 0.2494
+  },
+  "composition": {
+    "method": "original character RGB + existing background + horizontal translation",
+    "original_character_center_x": 953.26,
+    "new_character_center_x": 1145.26,
+    "delta_x_pixels": 192.0,
+    "delta_x_ratio": 0.1001,
+    "dx_pixels": 192,
+    "dx_fraction": 0.1,
+    "scale": 1.0,
+    "rotation": 0.0,
+    "mirror": false,
+    "deterministic": true,
+    "character_rgb_mae": 0.0,
+    "background_outside_mae": 0.0,
+    "feather_band_mae": 33.644932509723176,
+    "original_bbox": [
+      576,
+      0,
+      1324,
+      946
+    ],
+    "new_bbox": [
+      768,
+      0,
+      1516,
+      946
+    ],
+    "clipped": false
+  },
+  "new_keyframe": {
+    "path": "/root/autodl-tmp/anime-remix-agent/experiments/keyframe_i2v_g1b/work/keyframes/new_start.png",
+    "sha256": "85cd1acbf73de0092c7d800b9f7c08ade94a1358fe62580dda2f5d6c35154dde",
+    "resolution": [
+      1918,
+      1078
+    ],
+    "not_in_source": {
+      "min_mae_vs_any_source_frame": 20.54,
+      "argmin_source_frame": 53
+    }
+  },
+  "prompt": "A 2D anime girl with light golden-brown hair stands in the same fixed scene. The camera is completely still. She keeps her body and pose stable while slowly turning her head to her right by about 20 to 30 degrees. She naturally blinks once during the motion, with a very slight natural secondary motion in her hair. Her identity, face, hairstyle, hair color, clothing, body proportions, background and visual style remain completely consistent with the first frame. No camera movement, no new objects, no text. aesthetic score: 5.5. motion score: 3.0. There is no text in the video.",
+  "input_line": "A 2D anime girl with light golden-brown hair stands in the same fixed scene. The camera is completely still. She keeps her body and pose stable while slowly turning her head to her right by about 20 to 30 degrees. She naturally blinks once during the motion, with a very slight natural secondary motion in her hair. Her identity, face, hairstyle, hair color, clothing, body proportions, background and visual style remain completely consistent with the first frame. No camera movement, no new objects, no text. aesthetic score: 5.5. motion score: 3.0. There is no text in the video.@@/root/autodl-tmp/anime-remix-agent/experiments/keyframe_i2v_g1b/work/keyframes/new_start.png&&0"
+}

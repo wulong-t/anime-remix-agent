@@ -1,0 +1,154 @@
+{
+  "generation": {
+    "output": "/root/autodl-tmp/anime-remix-agent/experiments/keyframe_i2v_g1a2/outputs/g1a2_three_keyframe.mp4",
+    "ffprobe": {
+      "codec": "h264",
+      "width": 1280,
+      "height": 704,
+      "fps": 16.0,
+      "frame_count": 81,
+      "duration": 5.063
+    },
+    "frame_count": 81,
+    "fps": 16.0,
+    "guide_frame_mapping": {
+      "start": 0,
+      "middle": 40,
+      "end": 80,
+      "note": "F=81; id=int((F-1)*Tid) then round to multiple of 8"
+    }
+  },
+  "guide_fidelity": {
+    "start": {
+      "generated_frame": 0,
+      "mae": 5.18,
+      "per_channel_mae": [
+        3.5799999237060547,
+        6.179999828338623,
+        5.78000020980835
+      ],
+      "psnr_like": 33.84
+    },
+    "middle": {
+      "generated_frame": 40,
+      "mae": 5.05,
+      "per_channel_mae": [
+        3.509999990463257,
+        4.920000076293945,
+        6.710000038146973
+      ],
+      "psnr_like": 34.07
+    },
+    "end": {
+      "generated_frame": 80,
+      "mae": 5.19,
+      "per_channel_mae": [
+        3.740000009536743,
+        4.949999809265137,
+        6.889999866485596
+      ],
+      "psnr_like": 33.83
+    }
+  },
+  "temporal": {
+    "adjacent_frame_mae_mean": 0.956,
+    "adjacent_frame_mae_std": 1.396,
+    "adjacent_frame_mae_max": 6.678,
+    "argmax_transition": 6,
+    "spike_count_gt_3sigma": 4,
+    "max_freeze_run_frames": 3,
+    "start_to_middle_mean": 1.494,
+    "middle_to_end_mean": 0.419,
+    "guide_transition_40": {
+      "t39_40": 0.235,
+      "t40_41": 0.723,
+      "neighbor_mae": [
+        0.592,
+        0.235,
+        0.723,
+        0.403
+      ]
+    },
+    "snap_detected": false,
+    "freeze_detected": false,
+    "motion_amplitude_note": "very low (mean adjacent MAE < 1.5): interpolation is smooth but may appear near-static"
+  },
+  "identity": {
+    "hair": {
+      "mean_rgb": [
+        212.6,
+        164.2,
+        112.7
+      ],
+      "std_rgb": [
+        0.6,
+        0.7,
+        0.5
+      ],
+      "frame0": [
+        210.0,
+        163.0,
+        114.0
+      ],
+      "frame40": [
+        213.0,
+        164.0,
+        113.0
+      ],
+      "frame80": [
+        213.0,
+        164.0,
+        113.0
+      ]
+    },
+    "face": {
+      "mean_rgb": [
+        213.8,
+        165.3,
+        123.2
+      ],
+      "std_rgb": [
+        0.8,
+        1.9,
+        6.4
+      ],
+      "frame0": [
+        211.0,
+        164.0,
+        120.0
+      ],
+      "frame40": [
+        213.0,
+        166.0,
+        126.0
+      ],
+      "frame80": [
+        214.0,
+        165.0,
+        125.0
+      ]
+    }
+  },
+  "source_aligned_whole_frame_mae_mean": 7.73,
+  "result": "pass",
+  "decision": {
+    "multi_keyframe_suitable_for_asset_pipeline": true,
+    "evidence": [
+      "guide MAE start/mid/end = 5.18/5.05/5.19",
+      "adjacent MAE mean/std/max = 0.956/1.396/6.678",
+      "spikes(>3sigma)=4 freeze_run=3 motion_note=very low (mean adjacent MAE < 1.5): interpolation is smooth but may appear near-static",
+      "hair std=[0.6, 0.7, 0.5] face std=[0.8, 1.9, 6.4]"
+    ],
+    "limitations": [
+      "single seed/sample",
+      "objective thresholds only; human QA sheets provided"
+    ],
+    "next_single_question": "If PASS: G1-B (Asset -> New Keyframe -> Video); if FAIL_GUIDE: check guide transform/temporal position mapping."
+  },
+  "outputs": {
+    "fidelity_qa": "/root/autodl-tmp/anime-remix-agent/experiments/keyframe_i2v_g1a2/outputs/g1a2_fidelity_qa.png",
+    "temporal_qa": "/root/autodl-tmp/anime-remix-agent/experiments/keyframe_i2v_g1a2/outputs/g1a2_temporal_qa.png",
+    "source_vs_generated_qa": "/root/autodl-tmp/anime-remix-agent/experiments/keyframe_i2v_g1a2/outputs/g1a2_source_vs_generated_qa.png",
+    "guides_qa": "/root/autodl-tmp/anime-remix-agent/experiments/keyframe_i2v_g1a2/outputs/g1a2_guides_qa.png"
+  }
+}
