@@ -29,7 +29,7 @@ def _probed() -> ProbedClip:
     )
     return ProbedClip(
         asset=asset,
-        resolved_path=Path("demo/clips/clip_001.mp4").resolve(),
+        resolved_path=Path("synthetic-fixtures/clip_001.mp4").resolve(),
         size_bytes=1000,
         width=1280,
         height=720,
@@ -56,7 +56,9 @@ def _requirement() -> ShotRequirement:
 def test_compile_clip_timeline(tmp_path: Path) -> None:
     req = _requirement()
     probed = _probed()
-    probed.resolved_path = tmp_path / "demo" / "clips" / "clip_001.mp4"
+    probed.resolved_path = (
+        tmp_path / "synthetic-fixtures" / "clip_001.mp4"
+    )
     selection = Selection(
         asset=probed,
         rank=1,
@@ -74,7 +76,7 @@ def test_compile_clip_timeline(tmp_path: Path) -> None:
     item = timeline.items[0]
     assert item.strategy.value == "clip"
     assert item.source_frame_count == 72
-    assert item.source_path.endswith("demo/clips/clip_001.mp4")
+    assert item.source_path.endswith("synthetic-fixtures/clip_001.mp4")
 
 
 def test_compile_placeholder_timeline() -> None:

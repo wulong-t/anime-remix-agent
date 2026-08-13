@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://anime-remix-agent.local/schemas/remote-stage-result-v1.json",
+  "title": "Remote Codex stage result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "stage",
+    "status",
+    "branch",
+    "base_commit",
+    "head_commit",
+    "commit_created",
+    "summary",
+    "tests",
+    "artifacts",
+    "changed_files",
+    "blocking_issue",
+    "recommended_next_action"
+  ],
+  "properties": {
+    "stage": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "borderline",
+        "fail",
+        "blocked",
+        "needs_user_review"
+      ]
+    },
+    "branch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "base_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+    },
+    "head_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+    },
+    "commit_created": {
+      "type": "boolean"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "passed"
+        ],
+        "properties": {
+          "command": {
+            "type": "string",
+            "minLength": 1
+          },
+          "passed": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "changed_files": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "blocking_issue": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "recommended_next_action": {
+      "type": "string",
+      "enum": [
+        "continue",
+        "stop",
+        "review"
+      ]
+    }
+  }
+}

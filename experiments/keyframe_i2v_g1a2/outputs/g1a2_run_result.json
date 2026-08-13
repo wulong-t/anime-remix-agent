@@ -1,8 +1,0 @@
-{
-  "exit_code": 0,
-  "runtime_seconds": 3901.2,
-  "peak_vram_mib": 47633.0,
-  "memory_before_gib": 1.98,
-  "memory_after_gib": 43.45,
-  "output_path": "/root/autodl-tmp/anime-remix-agent/experiments/keyframe_i2v_g1a2/outputs/g1a2_three_keyframe.mp4"
-}

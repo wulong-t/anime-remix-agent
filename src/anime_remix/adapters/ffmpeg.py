@@ -142,6 +142,55 @@ class FFmpegToolkit:
         )
         return completed.stdout.splitlines()[0].strip() if completed.stdout else ""
 
+    def run(
+        self,
+        args: list[str],
+        *,
+        timeout: int = ENCODE_TIMEOUT,
+        error_cls: type[AnimeRemixError] = RenderError,
+        stage: str = "ffmpeg",
+    ) -> subprocess.CompletedProcess[str]:
+        """Run an ffmpeg/ffprobe command and return the completed process."""
+
+        return self._run(
+            args,
+            timeout=timeout,
+            error_cls=error_cls,
+            stage=stage,
+        )
+
+    def probe_duration(self, path: Path) -> float:
+        """Return the container duration in seconds via ffprobe."""
+
+        completed = self._run(
+            [
+                self.ffprobe or "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(path),
+            ],
+            timeout=PROBE_TIMEOUT,
+            error_cls=MediaProbeError,
+            stage="probe_duration",
+        )
+        raw = completed.stdout.strip()
+        if not raw:
+            raise MediaProbeError(
+                f"cannot read duration from {path}",
+                actual=path,
+            )
+        try:
+            return float(raw)
+        except ValueError as exc:
+            raise MediaProbeError(
+                f"invalid duration {raw!r} from {path}",
+                actual=path,
+            ) from exc
+
     def check_capabilities(self) -> None:
         if not self.ffmpeg:
             raise EnvironmentCapabilityError("ffmpeg not found on PATH")
@@ -570,6 +619,38 @@ class FFmpegToolkit:
             )
         return counted
 
+    def verify_video_decodable(self, path: Path) -> None:
+        """Decode every frame of the video stream; any error is fatal.
+
+        Runs a real ``ffmpeg -v error`` decode of the first video stream to
+        ``null``. A non-zero exit or any error-level stderr output is treated
+        as a decode failure. Used by the G1-MK1 harness to prove the raw
+        sample is fully decodable before the final run staging is created.
+        """
+
+        completed = self._run(
+            [
+                self.ffmpeg or "ffmpeg",
+                "-v",
+                "error",
+                "-i",
+                str(path),
+                "-map",
+                "0:v:0",
+                "-f",
+                "null",
+                "-",
+            ],
+            timeout=ENCODE_TIMEOUT,
+            error_cls=RenderError,
+            stage="decode_check",
+        )
+        if completed.stderr.strip():
+            raise RenderError(
+                "decode_check reported errors",
+                actual=_summarize_stderr(completed.stderr),
+            )
+
     def render_placeholder(
         self,
         item: TimelineItem,
@@ -605,6 +686,84 @@ class FFmpegToolkit:
             timeout=ENCODE_TIMEOUT,
             error_cls=RenderError,
             stage="render_placeholder",
+        )
+
+    def normalize_generated_source(
+        self,
+        source: Path,
+        output: Path,
+        *,
+        target_frames: int,
+        profile: RenderProfile | None = None,
+    ) -> None:
+        """Strictly normalize a generated video source (G1-MK1 contract 7.2).
+
+        Produces a video-only H.264 / 1280x720 / 24fps CFR clip with exactly
+        ``target_frames`` frames, yuv420p, SAR 1:1, BT.709 limited,
+        progressive, chroma left. The filter order is frozen:
+        scale -> pad -> setsar -> format -> setparams -> fps -> trim -> setpts.
+        The output is verified with ``validate_segment`` (no +/-1 tolerance)
+        and no other toolkit method is changed.
+        """
+
+        if (
+            isinstance(target_frames, bool)
+            or not isinstance(target_frames, int)
+            or target_frames <= 0
+        ):
+            raise MediaProbeError(
+                "target_frames must be a positive integer",
+                actual=target_frames,
+            )
+        source = Path(source)
+        if source.is_symlink() or not source.is_file():
+            raise MediaProbeError(
+                "normalization source must be a regular file",
+                actual=source,
+            )
+        output = Path(output)
+        if output.exists():
+            raise OutputValidationError(
+                "normalization output already exists",
+                actual=output,
+            )
+        output.parent.mkdir(parents=True, exist_ok=True)
+        profile = profile or RenderProfile()
+        filter_graph = ",".join(
+            [
+                "scale=1280:720:force_original_aspect_ratio=decrease:force_divisible_by=2",
+                "pad=1280:720:(ow-iw)/2:(oh-ih)/2:black",
+                "setsar=1",
+                "format=yuv420p",
+                "setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709:field_mode=prog",
+                "fps=fps=24:start_time=0:round=near",
+                f"trim=end_frame={target_frames}",
+                "setpts=N/(24*TB)",
+            ]
+        )
+        args = [
+            self.ffmpeg or "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-i",
+            str(source),
+            "-map",
+            "0:v:0",
+            "-vf",
+            filter_graph,
+        ]
+        args.extend(self._encode_args(profile, output))
+        self._run(
+            args,
+            timeout=ENCODE_TIMEOUT,
+            error_cls=RenderError,
+            stage="normalize_generated_source",
+        )
+        self.validate_segment(
+            output,
+            target_frames=target_frames,
+            shot_id="generated_source",
         )
 
     def _stream_signature(self, stream: dict[str, Any]) -> dict[str, Any]:

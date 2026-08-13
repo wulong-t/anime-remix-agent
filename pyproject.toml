@@ -9,7 +9,10 @@ description = "Anime Remix Agent: script + clips -> editable timeline -> MP4"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
+    "dashscope>=1.26.6,<2",
+    "pillow>=12.3.0",
     "pydantic>=2.0,<3",
+    "replicate>=1.0.7",
     "typer>=0.12,<1",
 ]
 

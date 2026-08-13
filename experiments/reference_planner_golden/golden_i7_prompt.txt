@@ -1,0 +1,16 @@
+Picture 1 defines the character identity (WHO). Preserve Picture 1's identity features: face, facial features, hairstyle, hair color and eye appearance, plus the outfit when it must be kept. Picture 1's pose, scene and camera are not preserved: when a Picture 2 is provided the pose follows Picture 2, otherwise the pose follows the text HOW; the scene follows the SCENE constraint, and camera/composition follow the shot constraints.
+Picture 2 provides only the pose and expression (HOW). Do not copy Picture 2's identity, outfit, background or scene; apply only its pose and expression.
+No third visual reference is used. Scene, camera, composition, lighting and style constraints are text-only (WHERE/CAMERA).
+
+Text constraints:
+- CHARACTER (WHO): 主角：林夏；P1 提供角色身份视觉参考（WHO）：脸、五官、发型、发色、眼睛，参考描述：角色身份参考：脸、发型、校服、色彩
+- POSE/EXPRESSION (HOW): P2 仅提供姿态与表情（HOW）；不采用 P2 的身份、服装或背景，参考描述：姿态/表情参考：伸手、回望
+- SCENE (WHERE): shot.setting: 夜间城市住宅建筑外景；夜间城市住宅建筑外景；wide establishing；暖黄窗灯
+- CAMERA: shot_scale: wide；camera_position: 中景平视；camera_motion: fixed
+- COMPOSITION: 人物位于画面中央，黄昏天台全景，栏杆与远处城市天际线
+- LIGHTING: （无）
+- STYLE: （无）
+- PRESERVE: 保持 P1 的身份特征：脸、五官、发型、发色、眼睛与服装（如 P1 服装需保留）；不保留 P1 的瞬时表情、视线或姿态状态；姿态、场景、机位与构图按目标约束改变；姿态与表情遵循 Picture 2（preserve HOW from Picture 2）；P2 仅作为姿态与表情来源；不保留 P2 的服装、身份或背景
+- AVOID: 不要融合或混用 P1 与 P2 的身份特征（identity fusion）；不要复制 P2 的服装或外观细节（P2 outfit leakage）；不要把 P1 源场景或其他参考图场景带入目标场景（source scene leakage）；不要改变 P1 的身份特征；不要引入未登记角色或道具；不要添加文字、水印或 Logo；本计划最多两张视觉参考，不要使用第三张参考图
+
+Role summary: WHO from Picture 1; HOW from Picture 2; WHERE/CAMERA/STYLE from text.

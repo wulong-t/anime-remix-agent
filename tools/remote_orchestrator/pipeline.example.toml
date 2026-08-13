@@ -1,0 +1,25 @@
+[remote]
+host = "REPLACE_WITH_SSH_HOST"
+repo = "/root/autodl-tmp/anime-remix-agent"
+worktree_root = "/root/autodl-tmp/anime-remix-worktrees"
+# Optional local-only absolute path; keep the real value in ignored pipeline.local.toml.
+# identity_file = "C:/Users/example/.ssh/dedicated_key"
+# Default false. Set true only for a reviewed, stable pre-existing dirty checkout.
+allow_dirty_primary = false
+connect_timeout_seconds = 15
+stage_timeout_seconds = 900
+
+[pipeline]
+id = "remote-orchestrator-smoke"
+base_branch = "main"
+push = false
+
+[[stages]]
+id = "stage-01"
+prompt = "prompts/example-stage-01.md"
+depends_on = []
+
+[[stages]]
+id = "stage-02"
+prompt = "prompts/example-stage-02.md"
+depends_on = ["stage-01"]

@@ -4,20 +4,54 @@ __pycache__/
 build/
 dist/
 wheels/
-*.egg-info
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
-# Virtual environments
-.venv
+# Virtual environments and local caches
+.venv/
 .uv-cache/
-
-# Generated outputs
-runs/
 .tmp/
 
-.pytest_cache/
+# Local secrets
+.env
+.env.*
+!.env.example
 
-.ruff_cache/
+# User-owned/private media and run artifacts
+/runs/
+/record/
+/experiments/**/runs/
+/experiments/**/outputs/
+/experiments/**/output/
+/experiments/**/work/
+/experiments/**/.tmp/
+/experiments/**/review/
 
-README.md
+# Closed private experiment scaffolds
+/experiments/character_style_profiles/
+/experiments/i5_shared_anchor_qwen/
+/experiments/i7_shot_pipeline/
+/experiments/component_generation/
+/experiments/kf_product_1/
+/experiments/i6_vidu_q2_pro/request_contract.json
 
-record/
+# Model/checkpoint files
+*.safetensors
+*.ckpt
+*.pth
+*.pt
+*.onnx
+
+# Local-only remote orchestration state and target configuration
+/tools/remote_orchestrator/.state/
+/tools/remote_orchestrator/pipeline.local.toml
+
+# Layered-video source media stays local
+/experiments/layered_video_g0/input/
+
+# Legacy raw generator names if old experiments are restored locally
+/experiments/keyframe_i2v_g1a2/outputs/0.mp4
+/experiments/keyframe_i2v_g1b/outputs/0.mp4
